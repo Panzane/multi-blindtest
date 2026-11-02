@@ -107,14 +107,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePause() {
-        if (audio.isPlaying.value) audio.pause() else audio.resume()
+        if (audio.isPlaying.value) audio.pause() else audio.resume(remainingIds())
     }
 
     /** Relance depuis le début toutes les chansons pas encore trouvées. */
     fun replayRemaining() {
-        val round = _state.value.round ?: return
-        audio.playFromStart(round.remaining.map { it.track.id }.toSet())
+        audio.playFromStart(remainingIds())
     }
+
+    private fun remainingIds(): Set<Long> =
+        _state.value.round?.remaining?.map { it.track.id }?.toSet().orEmpty()
 
     /** Le maître du jeu coche une chanson trouvée : la musique s'arrête jusqu'à ce qu'il relance. */
     fun markFound(trackId: Long, playerId: Int) {

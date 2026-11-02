@@ -27,8 +27,6 @@ class MultiPreviewPlayer(private val context: Context) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
-    private val activeIds = mutableSetOf<Long>()
-
     fun load(tracks: List<Track>) {
         release()
         tracks.forEach { track ->
@@ -56,8 +54,6 @@ class MultiPreviewPlayer(private val context: Context) {
 
     /** Relance depuis le début les chansons [ids] et coupe toutes les autres. */
     fun playFromStart(ids: Set<Long>) {
-        activeIds.clear()
-        activeIds.addAll(ids)
         // Baisse le volume quand beaucoup de chansons se superposent, pour éviter la saturation
         val volume = (2f / ids.size.coerceAtLeast(1)).coerceAtMost(1f)
         players.forEach { (id, player) ->
@@ -72,9 +68,10 @@ class MultiPreviewPlayer(private val context: Context) {
         _isPlaying.value = ids.isNotEmpty()
     }
 
-    fun resume() {
-        activeIds.forEach { players[it]?.play() }
-        _isPlaying.value = activeIds.isNotEmpty()
+    /** Reprend là où elles en étaient les chansons [ids] uniquement ; les autres restent coupées. */
+    fun resume(ids: Set<Long>) {
+        players.forEach { (id, player) -> if (id in ids) player.play() else player.pause() }
+        _isPlaying.value = ids.isNotEmpty()
     }
 
     fun pause() {
@@ -85,7 +82,6 @@ class MultiPreviewPlayer(private val context: Context) {
     fun release() {
         players.values.forEach { it.release() }
         players.clear()
-        activeIds.clear()
         settledIds.value = emptySet()
         _isPlaying.value = false
     }
