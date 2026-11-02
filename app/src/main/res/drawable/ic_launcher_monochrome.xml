@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Calque monochrome (icônes à thème, Android 13+) : les trois croches de l'icône, d'une seule couleur -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <group
+        android:pivotX="267"
+        android:pivotY="265"
+        android:scaleX="0.82"
+        android:scaleY="0.82"
+        android:translateX="-11"
+        android:translateY="-9">
+        <group android:translateX="176" android:translateY="352">
+            <group android:rotation="-20">
+                <path android:fillColor="#FF000000" android:pathData="M-36,0 a36,27 0 1,0 72,0 a36,27 0 1,0 -72,0 Z" />
+            </group>
+            <path android:fillColor="#FF000000" android:pathData="M24,-180 h13 v176 h-13 Z M30,-180 C52,-146 104,-136 94,-70 C88,-102 62,-114 30,-120 Z" />
+        </group>
+        <group android:translateX="240" android:translateY="318">
+            <group android:rotation="-20">
+                <path android:fillColor="#FF000000" android:pathData="M-36,0 a36,27 0 1,0 72,0 a36,27 0 1,0 -72,0 Z" />
+            </group>
+            <path android:fillColor="#FF000000" android:pathData="M24,-180 h13 v176 h-13 Z M30,-180 C52,-146 104,-136 94,-70 C88,-102 62,-114 30,-120 Z" />
+        </group>
+        <group android:translateX="300" android:translateY="366">
+            <group android:rotation="-20">
+                <path android:fillColor="#FF000000" android:pathData="M-36,0 a36,27 0 1,0 72,0 a36,27 0 1,0 -72,0 Z" />
+            </group>
+            <path android:fillColor="#FF000000" android:pathData="M24,-180 h13 v176 h-13 Z M30,-180 C52,-146 104,-136 94,-70 C88,-102 62,-114 30,-120 Z" />
+        </group>
+    </group>
+</vector>
