@@ -50,6 +50,11 @@ android {
     }
 }
 
+// Output files are named e.g. multi-blindtest-0.1.0-release.apk
+base {
+    archivesName = "multi-blindtest-${android.defaultConfig.versionName}"
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
