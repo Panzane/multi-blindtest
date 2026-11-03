@@ -33,14 +33,14 @@ import androidx.compose.ui.unit.dp
 import com.panzane.multiblindtest.data.deezer.Track
 import com.panzane.multiblindtest.game.GameUiState
 import com.panzane.multiblindtest.game.GameViewModel
-import com.panzane.multiblindtest.game.SONGS_PER_ROUND
 import com.panzane.multiblindtest.ui.components.RoundHeader
 import com.panzane.multiblindtest.ui.components.TrackCover
 
 @Composable
 fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
     val selectedIds = state.selection.map { it.id }.toSet()
-    val isFull = state.selection.size >= SONGS_PER_ROUND
+    val songsPerRound = state.settings.songsPerRound
+    val isFull = state.selection.size >= songsPerRound
 
     Column(
         Modifier.fillMaxSize().padding(16.dp),
@@ -48,7 +48,7 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
     ) {
         RoundHeader(state)
         Text(
-            "${state.master?.name.orEmpty()}, choisissez $SONGS_PER_ROUND chansons en cachette !",
+            "${state.master?.name.orEmpty()}, choisissez $songsPerRound chansons en cachette !",
             style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -70,7 +70,7 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn {
                 if (state.selection.isNotEmpty()) {
-                    item { SectionTitle("Votre sélection (${state.selection.size}/$SONGS_PER_ROUND)") }
+                    item { SectionTitle("Votre sélection (${state.selection.size}/$songsPerRound)") }
                     items(state.selection, key = { "selected-${it.id}" }) { track ->
                         TrackItem(track, selected = true, enabled = true) { viewModel.toggleSelection(track) }
                     }
@@ -89,7 +89,7 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
         }
 
         Button(onClick = viewModel::launchRound, enabled = isFull, modifier = Modifier.fillMaxWidth()) {
-            Text(if (isFull) "Lancer les $SONGS_PER_ROUND chansons" else "Encore ${SONGS_PER_ROUND - state.selection.size} chanson(s) à choisir")
+            Text(if (isFull) "Lancer les $songsPerRound chansons" else "Encore ${songsPerRound - state.selection.size} chanson(s) à choisir")
         }
     }
 }

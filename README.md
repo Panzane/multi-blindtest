@@ -4,12 +4,15 @@ Application Android de blindtest multijoueur **sur un seul téléphone**, alimen
 
 ## Principe
 
-1. Ajouter les joueurs (2 à 10). Chacun sera maître du jeu (MJ) à tour de rôle : une partie compte autant de tours que de joueurs.
-2. En cachette, le MJ choisit 6 chansons sur Deezer (recherche par titre / artiste, titres du moment, ou lien de playlist collé).
-3. Les 6 extraits sont joués **en même temps**, en boucle.
+1. Ajouter les joueurs (2 à 10) et régler les options :
+   - nombre de chansons par manche (3 à 10, 6 par défaut) ;
+   - nombre de tours par joueur (1 à 5) : chacun sera maître du jeu (MJ) autant de fois ;
+   - ordre des MJ aléatoire : tiré au sort au lancement, puis identique à chaque tour.
+2. En cachette, le MJ choisit ses chansons sur Deezer (recherche par titre / artiste, titres du moment, ou lien de playlist collé).
+3. Les extraits sont joués **en même temps**, en boucle.
 4. Quand un joueur reconnaît une chanson, le MJ la touche et indique qui l'a trouvée (+1 point). La musique s'arrête ; le MJ relance les chansons restantes.
 5. Quand il n'en reste que 2, les joueurs doivent donner les deux : le MJ désigne qui les a données (+2 points) ou « personne ».
-6. Les 6 réponses sont révélées, puis le tour suivant commence avec le MJ suivant. Classement final à la fin de la partie.
+6. Les réponses sont révélées, puis le tour suivant commence avec le MJ suivant. Classement final à la fin de la partie.
 
 ## Stack
 

@@ -40,9 +40,31 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { s -> s.copy(players = s.players.filterNot { it.id == id }) }
     }
 
+    fun setSongsPerRound(count: Int) {
+        _state.update {
+            it.copy(settings = it.settings.copy(songsPerRound = count.coerceIn(SONGS_PER_ROUND_RANGE)))
+        }
+    }
+
+    fun setTurnsPerPlayer(count: Int) {
+        _state.update {
+            it.copy(settings = it.settings.copy(turnsPerPlayer = count.coerceIn(TURNS_PER_PLAYER_RANGE)))
+        }
+    }
+
+    fun setRandomMasterOrder(enabled: Boolean) {
+        _state.update { it.copy(settings = it.settings.copy(randomMasterOrder = enabled)) }
+    }
+
     fun startGame() {
         _state.update { s ->
-            s.copy(players = s.players.map { it.copy(score = 0) }, roundIndex = 0, round = null)
+            val ids = s.players.map { it.id }
+            s.copy(
+                players = s.players.map { it.copy(score = 0) },
+                masterOrder = if (s.settings.randomMasterOrder) ids.shuffled() else ids,
+                roundIndex = 0,
+                round = null,
+            )
         }
         goToSelection()
     }
@@ -82,7 +104,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { s ->
             when {
                 s.selection.any { it.id == track.id } -> s.copy(selection = s.selection.filterNot { it.id == track.id })
-                s.selection.size >= SONGS_PER_ROUND -> s
+                s.selection.size >= s.settings.songsPerRound -> s
                 else -> s.copy(selection = s.selection + track)
             }
         }
@@ -93,7 +115,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun launchRound() {
         val s = _state.value
         val master = s.master ?: return
-        if (s.selection.size != SONGS_PER_ROUND) return
+        if (s.selection.size != s.settings.songsPerRound) return
         _state.update {
             it.copy(screen = Screen.PLAYING, round = Round(master.id, s.selection.shuffled().map(::Song)))
         }
