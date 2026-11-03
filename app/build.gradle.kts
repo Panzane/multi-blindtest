@@ -17,8 +17,23 @@ android {
         versionName = "0.1.0"
     }
 
+    // Release signing credentials live outside the repo, in ~/.gradle/gradle.properties
+    // (or as ORG_GRADLE_PROJECT_* env vars). Without them, release builds are unsigned.
+    val releaseKeystore = providers.gradleProperty("MULTIBLINDTEST_KEYSTORE").orNull
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = providers.gradleProperty("MULTIBLINDTEST_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.gradleProperty("MULTIBLINDTEST_KEY_ALIAS").get()
+                keyPassword = providers.gradleProperty("MULTIBLINDTEST_KEY_PASSWORD").get()
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
