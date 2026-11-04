@@ -172,6 +172,39 @@
   let retryTimer = null;
   let view = null;
   let pendingJoin = false;
+  let audioCtx = null;
+  let lastPress = 0;
+
+  // Les navigateurs (iPhone surtout) n'autorisent le son qu'après un geste : on prépare l'audio au toucher du buzzer
+  function unlockAudio() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch {}
+  }
+
+  /** Son de buzzer synthétisé : deux notes graves qui descendent, environ une demi-seconde. */
+  function playBuzzSound() {
+    if (!audioCtx) return;
+    try {
+      const t = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.setValueAtTime(0.35, t + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      [220, 223].forEach(freq => {
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq * 2, t);
+        osc.frequency.exponentialRampToValueAtTime(freq, t + 0.5);
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.6);
+      });
+    } catch {}
+  }
 
   function show(id, visible) { $(id).classList.toggle('hidden', !visible); }
 
@@ -228,10 +261,14 @@
         store.set('token', null);
         showJoin('Tu as été retiré de la partie.');
         break;
-      case 'state':
+      case 'state': {
+        const hadHand = !!(view && view.youBuzzed);
         view = msg;
+        // Son seulement si c'est ce téléphone qui vient d'obtenir la main (pas à une reconnexion)
+        if (msg.youBuzzed && !hadHand && Date.now() - lastPress < 3000) playBuzzSound();
         render();
         break;
+      }
     }
   }
 
@@ -464,6 +501,8 @@
     e.preventDefault();
     if ($('buzz').disabled) return;
     $('buzz').classList.add('pressed');
+    unlockAudio();
+    lastPress = Date.now();
     if (navigator.vibrate) navigator.vibrate(60);
     send({ type: 'buzz' });
   });
