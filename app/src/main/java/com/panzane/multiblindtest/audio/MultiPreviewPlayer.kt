@@ -54,8 +54,7 @@ class MultiPreviewPlayer(private val context: Context) {
 
     /** Relance depuis le début les chansons [ids] et coupe toutes les autres. */
     fun playFromStart(ids: Set<Long>) {
-        // Baisse le volume quand beaucoup de chansons se superposent, pour éviter la saturation
-        val volume = (2f / ids.size.coerceAtLeast(1)).coerceAtMost(1f)
+        val volume = volumeFor(ids)
         players.forEach { (id, player) ->
             if (id in ids) {
                 player.volume = volume
@@ -70,9 +69,21 @@ class MultiPreviewPlayer(private val context: Context) {
 
     /** Reprend là où elles en étaient les chansons [ids] uniquement ; les autres restent coupées. */
     fun resume(ids: Set<Long>) {
-        players.forEach { (id, player) -> if (id in ids) player.play() else player.pause() }
+        val volume = volumeFor(ids)
+        players.forEach { (id, player) ->
+            if (id in ids) {
+                player.volume = volume
+                player.play()
+            } else {
+                player.pause()
+            }
+        }
         _isPlaying.value = ids.isNotEmpty()
     }
+
+    /** Baisse le volume quand beaucoup de chansons se superposent, pour éviter la saturation. */
+    private fun volumeFor(ids: Set<Long>): Float =
+        (2f / ids.size.coerceAtLeast(1)).coerceAtMost(1f)
 
     fun pause() {
         players.values.forEach { it.pause() }

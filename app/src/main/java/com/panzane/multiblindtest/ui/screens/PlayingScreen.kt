@@ -3,7 +3,6 @@ package com.panzane.multiblindtest.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -22,7 +20,6 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -73,18 +70,12 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
         if (round.isAudioLoading) {
             CircularProgressIndicator()
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                FilledIconButton(onClick = viewModel::togglePause, modifier = Modifier.size(72.dp)) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Reprendre",
-                        modifier = Modifier.size(40.dp),
-                    )
-                }
-                OutlinedButton(onClick = viewModel::replayRemaining) {
-                    Icon(Icons.Default.Replay, contentDescription = null)
-                    Text("Relancer", Modifier.padding(start = 8.dp))
-                }
+            FilledIconButton(onClick = viewModel::togglePause, modifier = Modifier.size(72.dp)) {
+                Icon(
+                    if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Reprendre",
+                    modifier = Modifier.size(40.dp),
+                )
             }
         }
 
@@ -95,14 +86,14 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
                     foundByName = state.playerName(song.foundBy),
                     // En finale, les deux dernières se valident ensemble
                     enabled = !round.isAudioLoading && (song.isFound || !round.isFinal),
-                    onClick = { pendingSongId = song.track.id },
+                    onClick = { viewModel.pauseMusic(); pendingSongId = song.track.id },
                 )
             }
         }
 
         if (round.isFinal) {
             Button(
-                onClick = { showFinalDialog = true },
+                onClick = { viewModel.pauseMusic(); showFinalDialog = true },
                 enabled = !round.isAudioLoading,
                 modifier = Modifier.fillMaxWidth(),
             ) {
