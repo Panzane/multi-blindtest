@@ -13,8 +13,8 @@ android {
         applicationId = "com.panzane.multiblindtest"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "1.0.0"
     }
 
     // Release signing credentials live outside the repo, in ~/.gradle/gradle.properties

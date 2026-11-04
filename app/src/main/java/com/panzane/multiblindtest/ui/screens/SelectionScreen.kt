@@ -25,8 +25,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,6 +44,16 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
     val selectedIds = state.selection.map { it.id }.toSet()
     val songsPerRound = state.settings.songsPerRound
     val isFull = state.selection.size >= songsPerRound
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    // Sélection complète : on range le clavier pour laisser voir le bouton de lancement
+    LaunchedEffect(isFull) {
+        if (isFull) {
+            keyboard?.hide()
+            focusManager.clearFocus()
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().padding(16.dp),

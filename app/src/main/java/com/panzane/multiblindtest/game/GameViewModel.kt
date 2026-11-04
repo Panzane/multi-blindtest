@@ -101,12 +101,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleSelection(track: Track) {
+        val before = _state.value
+        val adding = before.selection.none { it.id == track.id } &&
+            before.selection.size < before.settings.songsPerRound
         _state.update { s ->
             when {
                 s.selection.any { it.id == track.id } -> s.copy(selection = s.selection.filterNot { it.id == track.id })
                 s.selection.size >= s.settings.songsPerRound -> s
                 else -> s.copy(selection = s.selection + track)
             }
+        }
+        // Après un ajout, on vide la recherche pour enchaîner sur la suivante
+        // (sauf pour un lien de playlist, dont on garde la liste de titres).
+        val query = before.query
+        if (adding && query.isNotBlank() && DeezerRepository.parsePlaylistId(query) == null) {
+            _state.update { it.copy(query = "") }
+            search("")
         }
     }
 
@@ -132,8 +142,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         if (audio.isPlaying.value) audio.pause() else audio.resume(remainingIds())
     }
 
-    /** Relance depuis le début toutes les chansons pas encore trouvées. */
-    fun replayRemaining() {
+    /** Le MJ ouvre l'attribution d'un point : on coupe la musique pendant qu'il choisit. */
+    fun pauseMusic() {
+        audio.pause()
+    }
+
+    /** Lance depuis le début toutes les chansons pas encore trouvées (début de manche). */
+    private fun replayRemaining() {
         audio.playFromStart(remainingIds())
     }
 
