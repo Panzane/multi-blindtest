@@ -26,6 +26,8 @@ import com.panzane.multiblindtest.game.GameViewModel
 import com.panzane.multiblindtest.game.Screen
 import com.panzane.multiblindtest.ui.screens.PlayersScreen
 import com.panzane.multiblindtest.ui.screens.PlayingScreen
+import com.panzane.multiblindtest.ui.screens.RemotePlayingScreen
+import com.panzane.multiblindtest.ui.screens.RemoteSelectionScreen
 import com.panzane.multiblindtest.ui.screens.ResultsScreen
 import com.panzane.multiblindtest.ui.screens.RevealScreen
 import com.panzane.multiblindtest.ui.screens.SelectionScreen
@@ -78,8 +80,11 @@ fun BlindtestApp(viewModel: GameViewModel = viewModel()) {
         Box(Modifier.fillMaxSize().padding(padding)) {
             when (state.screen) {
                 Screen.PLAYERS -> PlayersScreen(state, viewModel)
-                Screen.SELECTION -> SelectionScreen(state, viewModel)
-                Screen.PLAYING -> PlayingScreen(state, viewModel)
+                // Quand le MJ pilote depuis son téléphone, l'hôte ne montre pas les chansons
+                Screen.SELECTION ->
+                    if (state.remoteMaster) RemoteSelectionScreen(state, viewModel) else SelectionScreen(state, viewModel)
+                Screen.PLAYING ->
+                    if (state.remoteMaster) RemotePlayingScreen(state, viewModel) else PlayingScreen(state, viewModel)
                 Screen.REVEAL -> RevealScreen(state, viewModel)
                 Screen.RESULTS -> ResultsScreen(state, viewModel)
             }

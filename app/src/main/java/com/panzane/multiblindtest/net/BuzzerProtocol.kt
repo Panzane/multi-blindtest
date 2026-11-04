@@ -25,6 +25,52 @@ data class JoinMessage(val name: String, val token: String? = null) : ClientMess
 @SerialName("buzz")
 data object BuzzMessage : ClientMessage
 
+/** Commandes du maître du jeu quand il pilote la manche depuis son téléphone. */
+@Serializable
+sealed interface MasterAction : ClientMessage
+
+@Serializable
+@SerialName("search")
+data class SearchAction(val query: String) : MasterAction
+
+/** Ajoute ou retire une chanson de la sélection (parmi les résultats affichés ou la sélection). */
+@Serializable
+@SerialName("toggleTrack")
+data class ToggleTrackAction(val trackId: Long) : MasterAction
+
+@Serializable
+@SerialName("launch")
+data object LaunchAction : MasterAction
+
+@Serializable
+@SerialName("togglePause")
+data object TogglePauseAction : MasterAction
+
+@Serializable
+@SerialName("pause")
+data object PauseAction : MasterAction
+
+@Serializable
+@SerialName("markFound")
+data class MarkFoundAction(val trackId: Long, val playerId: Int) : MasterAction
+
+@Serializable
+@SerialName("unmarkFound")
+data class UnmarkFoundAction(val trackId: Long) : MasterAction
+
+@Serializable
+@SerialName("rejectBuzz")
+data object RejectBuzzAction : MasterAction
+
+/** Finale : [playerId] a donné les deux dernières chansons, ou personne (null). */
+@Serializable
+@SerialName("resolveFinal")
+data class ResolveFinalAction(val playerId: Int? = null) : MasterAction
+
+@Serializable
+@SerialName("nextRound")
+data object NextRoundAction : MasterAction
+
 // --- Hôte -> page buzzer ---------------------------------------------------------
 
 @Serializable
@@ -67,7 +113,47 @@ data class PlayerView(
     val ranking: List<RankEntry> = emptyList(),
     /** Réponses de la manche, une fois révélées. */
     val answers: List<Answer> = emptyList(),
+    /** Le MJ de la manche joue sur le téléphone hôte (joueur sans téléphone, ou reprise de la main). */
+    val masterOnHost: Boolean = false,
+    /** Commandes de la manche, envoyées uniquement au MJ qui pilote depuis son téléphone. */
+    val master: MasterView? = null,
 ) : ServerMessage
+
+@Serializable
+data class MasterView(
+    val songsPerRound: Int,
+    // Sélection des chansons
+    val query: String = "",
+    val searching: Boolean = false,
+    val error: String? = null,
+    val results: List<TrackInfo> = emptyList(),
+    val selection: List<TrackInfo> = emptyList(),
+    // Manche en cours
+    val songs: List<SongInfo> = emptyList(),
+    val isPlaying: Boolean = false,
+    val guessers: List<PlayerRef> = emptyList(),
+    val buzzerId: Int? = null,
+    val lockedOut: List<String> = emptyList(),
+    // Révélation
+    val isLastRound: Boolean = false,
+    val nextMasterName: String? = null,
+)
+
+@Serializable
+data class TrackInfo(val id: Long, val title: String, val artist: String, val cover: String?)
+
+@Serializable
+data class SongInfo(
+    val id: Long,
+    val title: String,
+    val artist: String,
+    val cover: String?,
+    val foundById: Int?,
+    val foundBy: String?,
+)
+
+@Serializable
+data class PlayerRef(val id: Int, val name: String)
 
 @Serializable
 enum class Phase {

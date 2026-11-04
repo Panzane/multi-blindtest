@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,7 +81,8 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
         Text("Joueurs (${state.players.size}/$MAX_PLAYERS)", style = MaterialTheme.typography.titleMedium)
         if (state.settings.buzzers) {
             Text(
-                "Ajoutez ici les joueurs sans téléphone, et vous-même si vous jouez sur ce téléphone.",
+                "Ajoutez ici les joueurs sans téléphone, et vous-même si vous jouez sur ce téléphone " +
+                    "(cochez alors votre nom pour y avoir un buzzer).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -108,10 +110,14 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
             state.players.forEach { player ->
                 ListItem(
                     headlineContent = { Text(player.name) },
-                    supportingContent = if (player.hasBuzzer) {
-                        { Text(if (player.id in state.connectedIds) "Buzzer connecté" else "Buzzer déconnecté") }
-                    } else {
-                        null
+                    supportingContent = when {
+                        player.hasBuzzer -> {
+                            { Text(if (player.id in state.connectedIds) "Buzzer connecté" else "Buzzer déconnecté") }
+                        }
+                        player.isHostOwner -> {
+                            { Text("Joue sur ce téléphone") }
+                        }
+                        else -> null
                     },
                     leadingContent = if (player.hasBuzzer) {
                         {
@@ -121,6 +127,11 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
                                 tint = if (player.id in state.connectedIds) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.outline,
                             )
+                        }
+                    } else if (state.settings.buzzers) {
+                        {
+                            // Le joueur qui utilise ce téléphone y aura un buzzer quand il n'est pas MJ
+                            RadioButton(selected = player.isHostOwner, onClick = { viewModel.setHostOwner(player.id) })
                         }
                     } else {
                         null

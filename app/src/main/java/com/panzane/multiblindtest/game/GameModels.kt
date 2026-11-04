@@ -8,6 +8,8 @@ data class Player(
     val score: Int = 0,
     /** Mode buzzers : identifie le téléphone du joueur ; null pour un joueur ajouté sur l'hôte (sans buzzer). */
     val token: String? = null,
+    /** Mode buzzers : joueur qui utilise le téléphone hôte (il y buzze quand il n'est pas MJ). */
+    val isHostOwner: Boolean = false,
 ) {
     val hasBuzzer: Boolean get() = token != null
 }
@@ -68,6 +70,8 @@ data class GameUiState(
     val hostUrl: String? = null,
     /** Mode buzzers : joueurs dont le téléphone est connecté. */
     val connectedIds: Set<Int> = emptySet(),
+    /** Le MJ de la manche a laissé la main au téléphone hôte (téléphone perdu, batterie vide…). */
+    val masterOnHost: Boolean = false,
 ) {
     val totalRounds: Int get() = players.size * settings.turnsPerPlayer
     val master: Player? get() = masterAt(roundIndex)
@@ -76,6 +80,10 @@ data class GameUiState(
     /** Joueurs pouvant marquer pendant la manche (tous sauf le maître du jeu). */
     val guessers: List<Player> get() = players.filterNot { it.id == master?.id }
     val ranking: List<Player> get() = players.sortedByDescending { it.score }
+    /** Le MJ pilote la manche depuis son propre téléphone ; l'hôte ne montre alors pas les chansons. */
+    val remoteMaster: Boolean get() = settings.buzzers && master?.hasBuzzer == true && !masterOnHost
+    /** Joueur qui buzze sur le téléphone hôte. */
+    val hostOwner: Player? get() = players.firstOrNull { it.isHostOwner }
 
     private fun masterAt(index: Int): Player? {
         val order = masterOrder.ifEmpty { players.map { it.id } }

@@ -32,6 +32,9 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
 
         /** Appelé depuis un thread du serveur, dans l'ordre d'arrivée des buzz. */
         fun onBuzz(token: String)
+
+        /** Commande envoyée par un joueur ; à ignorer s'il n'est pas le MJ qui pilote la manche. */
+        fun onMasterAction(token: String, action: MasterAction)
     }
 
     sealed interface JoinResult {
@@ -130,6 +133,7 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
                         is JoinResult.Rejected -> session.send(RejectedMessage(result.reason))
                     }
                     BuzzMessage -> tokens[id]?.let(handler::onBuzz)
+                    is MasterAction -> tokens[id]?.let { handler.onMasterAction(it, message) }
                 }
             }
         } finally {

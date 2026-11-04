@@ -51,6 +51,37 @@
   li .song span:last-child { color: var(--muted); font-size: .9rem; }
   li .found { color: var(--ok); white-space: nowrap; }
   li .missed { color: var(--muted); white-space: nowrap; }
+  /* Commandes du MJ */
+  body.mj main { justify-content: flex-start; }
+  .panel { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+  .panel h2 { font-size: 1rem; margin: 8px 0 0; color: var(--muted); font-weight: 600; }
+  .row { display: flex; flex-direction: row; gap: 8px; }
+  .row input { flex: 1; min-width: 0; }
+  button.secondary { font-size: 1rem; font-weight: 600; padding: 12px 16px; border-radius: 12px;
+    border: 2px solid var(--off); background: transparent; color: var(--text); }
+  /* user-select: none évite la recherche contextuelle de Chrome quand on touche une chanson */
+  li.track { align-items: center; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  li.track img { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex: none; background: var(--off); }
+  li.track .song { flex: 1; }
+  li.track .song span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li.track .action { color: var(--accent); font-weight: 600; white-space: nowrap; font-size: .9rem; }
+  li.track.selected { outline: 2px solid var(--accent); }
+  li.track.found { opacity: .55; }
+  li.track.found .action { color: var(--ok); }
+  li.track.disabled { cursor: default; }
+  li.track.disabled .action { color: var(--muted); }
+  .sticky { position: sticky; bottom: 0; padding: 8px 0; background: var(--bg); }
+  .card { background: #3a2a22; border: 2px solid var(--accent); border-radius: 16px; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .card .who { font-size: 1.5rem; font-weight: 800; }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end;
+    justify-content: center; padding: 16px; z-index: 10; }
+  #modal .sheet { width: 100%; max-width: 480px; max-height: 80vh; overflow: auto; background: var(--surface);
+    border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  #modal .sheet p { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+  #modal .sheet button { font-size: 1.1rem; padding: 14px; border-radius: 12px; border: 0;
+    background: var(--off); color: var(--text); text-align: left; }
+  #modal .sheet button.cancel { background: transparent; text-align: center; color: var(--muted); }
   #offline { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; text-align: center;
     background: var(--danger); color: #1c1b1f; font-weight: 600; }
 </style>
@@ -84,7 +115,46 @@
     <ol id="ranking" class="hidden"></ol>
     <ul id="answers" class="hidden"></ul>
   </section>
+
+  <!-- MJ : choix des chansons -->
+  <section id="mjSelect" class="panel hidden">
+    <p class="message">C'est toi le MJ ! Choisis tes chansons en cachette.</p>
+    <form id="searchForm" class="row" style="max-width:none">
+      <input id="q" type="search" enterkeyhint="search" placeholder="Titre, artiste ou lien de playlist">
+      <button class="secondary" type="submit">OK</button>
+    </form>
+    <p class="error" id="mjError"></p>
+    <h2 id="mjSelCount"></h2>
+    <ul id="mjSelection"></ul>
+    <h2 id="mjResultsTitle"></h2>
+    <ul id="mjResults"></ul>
+    <div class="sticky"><button class="primary" id="mjLaunch" style="width:100%"></button></div>
+  </section>
+
+  <!-- MJ : manche en cours -->
+  <section id="mjPlay" class="panel hidden">
+    <p class="message" id="mjStatus" style="text-align:center"></p>
+    <button class="primary" id="mjPause"></button>
+    <div class="card hidden" id="mjBuzzCard">
+      <div class="who" id="mjBuzzWho"></div>
+      <p id="mjBuzzHint"></p>
+      <button class="primary hidden" id="mjFinalOk"></button>
+      <button class="secondary" id="mjWrong">Mauvaise réponse</button>
+    </div>
+    <p class="hint" id="mjLocked"></p>
+    <ul id="mjSongs"></ul>
+    <button class="secondary hidden" id="mjFinal">Qui a donné les 2 chansons ?</button>
+  </section>
+
+  <!-- MJ : révélation -->
+  <section id="mjReveal" class="panel hidden">
+    <p class="message" style="text-align:center">Les réponses</p>
+    <ul id="mjAnswers"></ul>
+    <div class="sticky"><button class="primary" id="mjNext" style="width:100%"></button></div>
+  </section>
 </main>
+
+<div id="modal" class="hidden"><div class="sheet" id="sheet"></div></div>
 
 <div id="offline" class="hidden">Connexion perdue… reconnexion</div>
 
@@ -173,6 +243,14 @@
     const inRound = v.phase === 'selection' || v.phase === 'playing' || v.phase === 'reveal';
     $('round').textContent = inRound ? `Tour ${v.roundNumber}/${v.totalRounds} · MJ : ${v.masterName || ''}` : '';
 
+    // Le MJ qui pilote depuis ce téléphone reçoit ses commandes à la place du buzzer
+    const isMj = !!(v.isMaster && v.master);
+    document.body.classList.toggle('mj', isMj);
+    show('game', !isMj);
+    ['mjSelect', 'mjPlay', 'mjReveal'].forEach(id => show(id, isMj && id === MJ_PANELS[v.phase]));
+    if (v.phase !== 'playing') closeModal();
+    if (isMj) { renderMaster(v); return; }
+
     let message = '', hint = '', buzz = false, ranking = false, answers = false;
     switch (v.phase) {
       case 'lobby':
@@ -237,22 +315,149 @@
     }
 
     show('answers', answers);
-    if (answers) {
-      $('answers').replaceChildren(...v.answers.map(a => {
-        const li = document.createElement('li');
-        const song = document.createElement('div');
-        song.className = 'song';
-        const t = document.createElement('span'); t.textContent = a.title;
-        const ar = document.createElement('span'); ar.textContent = a.artist;
-        song.append(t, ar);
-        const who = document.createElement('span');
-        who.className = a.foundBy ? 'found' : 'missed';
-        who.textContent = a.foundBy || 'personne';
-        li.append(song, who);
-        return li;
+    if (answers) $('answers').replaceChildren(...answerItems(v.answers));
+  }
+
+  function answerItems(list) {
+    return list.map(a => {
+      const li = el('li');
+      const song = el('div', 'song');
+      song.append(el('span', null, a.title), el('span', null, a.artist));
+      li.append(song, el('span', a.foundBy ? 'found' : 'missed', a.foundBy || 'personne'));
+      return li;
+    });
+  }
+
+  // --- Commandes du MJ ------------------------------------------------------------
+
+  const MJ_PANELS = { selection: 'mjSelect', playing: 'mjPlay', reveal: 'mjReveal' };
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function trackItem(t, action, onClick, cls) {
+    const li = el('li', 'track' + (cls ? ' ' + cls : ''));
+    const img = el('img');
+    img.alt = '';
+    if (t.cover) img.src = t.cover;
+    const song = el('div', 'song');
+    song.append(el('span', null, t.title), el('span', null, t.artist));
+    li.append(img, song, el('span', 'action', action));
+    if (onClick) {
+      li.setAttribute('role', 'button');
+      li.tabIndex = 0;
+      li.addEventListener('click', onClick);
+    } else {
+      li.classList.add('disabled');
+    }
+    return li;
+  }
+
+  /** Feuille de choix en bas de l'écran : [{ label, onClick }]. */
+  function pick(title, options) {
+    const sheet = $('sheet');
+    sheet.replaceChildren(el('p', null, title));
+    options.forEach(o => {
+      const b = el('button', null, o.label);
+      b.addEventListener('click', () => { closeModal(); o.onClick(); });
+      sheet.append(b);
+    });
+    const cancel = el('button', 'cancel', 'Retour');
+    cancel.addEventListener('click', closeModal);
+    sheet.append(cancel);
+    show('modal', true);
+  }
+
+  function closeModal() { show('modal', false); }
+
+  function renderMaster(v) {
+    const m = v.master;
+    if (v.phase === 'selection') {
+      const full = m.selection.length >= m.songsPerRound;
+      // Ne pas écraser ce que le MJ est en train de taper
+      if (document.activeElement !== $('q')) $('q').value = m.query;
+      if (full && document.activeElement === $('q')) $('q').blur();
+      $('mjError').textContent = m.error || '';
+      show('mjError', !!m.error);
+      $('mjSelCount').textContent = `Ta sélection (${m.selection.length}/${m.songsPerRound})`;
+      show('mjSelCount', m.selection.length > 0);
+      $('mjSelection').replaceChildren(...m.selection.map(t =>
+        trackItem(t, 'Retirer', () => send({ type: 'toggleTrack', trackId: t.id }), 'selected')));
+      const selected = new Set(m.selection.map(t => t.id));
+      $('mjResultsTitle').textContent = m.searching ? 'Recherche…' : (m.query ? 'Résultats' : 'Titres du moment');
+      $('mjResults').replaceChildren(...m.results.filter(t => !selected.has(t.id)).map(t =>
+        trackItem(t, 'Ajouter', full ? null : () => send({ type: 'toggleTrack', trackId: t.id }))));
+      const launch = $('mjLaunch');
+      launch.disabled = !full;
+      launch.textContent = full ? `Lancer les ${m.songsPerRound} chansons`
+        : `Encore ${m.songsPerRound - m.selection.length} chanson(s) à choisir`;
+    } else if (v.phase === 'playing') {
+      const buzzer = m.guessers.find(g => g.id === m.buzzerId);
+      $('mjStatus').textContent = v.musicLoading ? 'Chargement des extraits…'
+        : v.isFinal ? 'Plus que 2 chansons : il faut donner les deux !'
+        : `${v.remaining} chansons en même temps. Touche une chanson quand elle est trouvée.`;
+      show('mjPause', !v.musicLoading && !buzzer);
+      $('mjPause').textContent = m.isPlaying ? '❚❚  Pause' : '▶  Reprendre';
+
+      show('mjBuzzCard', !!buzzer);
+      if (buzzer) {
+        $('mjBuzzWho').textContent = `${buzzer.name} a buzzé !`;
+        $('mjBuzzHint').textContent = v.isFinal ? 'Il faut donner les 2 chansons.' : 'Bonne réponse ? Touche la chanson trouvée.';
+        show('mjFinalOk', v.isFinal);
+        $('mjFinalOk').textContent = 'Les 2 sont bonnes (+2)';
+      }
+      $('mjLocked').textContent = m.lockedOut.length
+        ? `Bloqués jusqu'à la prochaine chanson trouvée : ${m.lockedOut.join(', ')}` : '';
+      show('mjLocked', m.lockedOut.length > 0);
+
+      $('mjSongs').replaceChildren(...m.songs.map(s => {
+        if (s.foundById != null) {
+          return trackItem(s, `trouvée par ${s.foundBy}`, () => pick(`« ${s.title} » trouvée par ${s.foundBy}`, [
+            { label: 'Annuler la réponse', onClick: () => send({ type: 'unmarkFound', trackId: s.id }) },
+          ]), 'found');
+        }
+        if (v.musicLoading || v.isFinal) return trackItem(s, '', null);
+        if (buzzer) return trackItem(s, `+1 ${buzzer.name}`, () => send({ type: 'markFound', trackId: s.id, playerId: buzzer.id }));
+        return trackItem(s, 'Attribuer', () => {
+          send({ type: 'pause' });
+          pick(`Qui a trouvé « ${s.title} » ?`, m.guessers.map(g => ({
+            label: g.name, onClick: () => send({ type: 'markFound', trackId: s.id, playerId: g.id }),
+          })));
+        });
       }));
+      show('mjFinal', v.isFinal && !v.musicLoading && !buzzer);
+    } else if (v.phase === 'reveal') {
+      $('mjAnswers').replaceChildren(...answerItems(v.answers));
+      $('mjNext').textContent = m.isLastRound ? 'Voir les résultats' : `Tour suivant · MJ : ${m.nextMasterName}`;
     }
   }
+
+  $('searchForm').addEventListener('submit', e => {
+    e.preventDefault();
+    $('q').blur();
+    send({ type: 'search', query: $('q').value });
+  });
+  $('mjLaunch').addEventListener('click', () => send({ type: 'launch' }));
+  $('mjPause').addEventListener('click', () => send({ type: 'togglePause' }));
+  $('mjWrong').addEventListener('click', () => send({ type: 'rejectBuzz' }));
+  $('mjFinalOk').addEventListener('click', () => {
+    const id = view && view.master && view.master.buzzerId;
+    if (id != null) send({ type: 'resolveFinal', playerId: id });
+  });
+  $('mjFinal').addEventListener('click', () => {
+    send({ type: 'pause' });
+    const m = view.master;
+    pick('Qui a donné les 2 dernières chansons ?', [
+      ...m.guessers.map(g => ({ label: g.name, onClick: () => send({ type: 'resolveFinal', playerId: g.id }) })),
+      { label: 'Personne', onClick: () => send({ type: 'resolveFinal' }) },
+    ]);
+  });
+  $('mjNext').addEventListener('click', () => send({ type: 'nextRound' }));
+  $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
 
   // pointerdown plutôt que click : le buzz part dès que le doigt touche l'écran
   $('buzz').addEventListener('pointerdown', e => {

@@ -12,10 +12,26 @@ import com.panzane.multiblindtest.audio.MultiPreviewPlayer
 import com.panzane.multiblindtest.data.deezer.DeezerRepository
 import com.panzane.multiblindtest.data.deezer.Track
 import com.panzane.multiblindtest.net.Answer
+import com.panzane.multiblindtest.net.BuzzerHostService
 import com.panzane.multiblindtest.net.BuzzerServer
+import com.panzane.multiblindtest.net.LaunchAction
+import com.panzane.multiblindtest.net.MarkFoundAction
+import com.panzane.multiblindtest.net.MasterAction
+import com.panzane.multiblindtest.net.MasterView
+import com.panzane.multiblindtest.net.NextRoundAction
+import com.panzane.multiblindtest.net.PauseAction
 import com.panzane.multiblindtest.net.Phase
+import com.panzane.multiblindtest.net.PlayerRef
 import com.panzane.multiblindtest.net.PlayerView
 import com.panzane.multiblindtest.net.RankEntry
+import com.panzane.multiblindtest.net.RejectBuzzAction
+import com.panzane.multiblindtest.net.ResolveFinalAction
+import com.panzane.multiblindtest.net.SearchAction
+import com.panzane.multiblindtest.net.SongInfo
+import com.panzane.multiblindtest.net.ToggleTrackAction
+import com.panzane.multiblindtest.net.TogglePauseAction
+import com.panzane.multiblindtest.net.TrackInfo
+import com.panzane.multiblindtest.net.UnmarkFoundAction
 import com.panzane.multiblindtest.net.localIpv4Address
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -24,6 +40,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,7 +83,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
     init {
         // Chaque changement d'état est répercuté sur les téléphones des joueurs
         viewModelScope.launch {
-            _state.collect { s -> if (s.settings.buzzers) server.publish(playerViews(s)) }
+            combine(_state, audio.isPlaying, ::Pair).collect { (s, isPlaying) ->
+                if (s.settings.buzzers) server.publish(playerViews(s, isPlaying))
+            }
         }
     }
 
@@ -90,6 +109,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         player.token?.let(server::kick)
     }
 
+    /** Désigne le joueur qui joue sur ce téléphone (ou personne, s'il est déjà désigné). */
+    fun setHostOwner(id: Int) {
+        _state.update { s ->
+            val wasOwner = s.players.firstOrNull { it.id == id }?.isHostOwner == true
+            s.copy(players = s.players.map { it.copy(isHostOwner = !wasOwner && it.id == id) })
+        }
+    }
+
     fun setBuzzerMode(enabled: Boolean) {
         if (enabled == _state.value.settings.buzzers) return
         _state.update { it.copy(settings = it.settings.copy(buzzers = enabled)) }
@@ -104,6 +131,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
                 return@launch
             }
             wifiLock.acquire()
+            BuzzerHostService.start(getApplication())
             launch {
                 server.connectedTokens.collect { tokens ->
                     _state.update { s -> s.copy(connectedIds = s.players.filter { it.token in tokens }.map { it.id }.toSet()) }
@@ -122,6 +150,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         serverJob?.cancel()
         serverJob = null
         wifiLock.release()
+        BuzzerHostService.stop(getApplication())
         viewModelScope.launch(serverDispatcher) { server.stop() }
         _state.update { s ->
             s.copy(players = s.players.filterNot { it.hasBuzzer }, hostUrl = null, connectedIds = emptySet())
@@ -147,12 +176,21 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         BuzzerServer.JoinResult.Accepted(newToken)
     }
 
-    /** Le premier buzz reçu prend la main : la musique s'arrête et les autres buzzers sont bloqués. */
     override fun onBuzz(token: String) {
+        _state.value.players.firstOrNull { it.token == token }?.let { buzz(it.id) }
+    }
+
+    /** Le joueur qui utilise le téléphone hôte buzze depuis l'écran de l'hôte. */
+    fun hostBuzz() {
+        _state.value.hostOwner?.let { buzz(it.id) }
+    }
+
+    /** Le premier buzz reçu prend la main : la musique s'arrête et les autres buzzers sont bloqués. */
+    private fun buzz(playerId: Int) {
         while (true) {
             val s = _state.value
             val round = s.round ?: return
-            val player = s.players.firstOrNull { it.token == token } ?: return
+            val player = s.players.firstOrNull { it.id == playerId } ?: return
             val allowed = s.screen == Screen.PLAYING && !round.isAudioLoading && round.buzzerId == null &&
                 player.id != s.master?.id && player.id !in round.lockedOut && round.remaining.isNotEmpty()
             if (!allowed) return
@@ -174,7 +212,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         audio.resume(remainingIds())
     }
 
-    private fun playerViews(s: GameUiState): Map<String, PlayerView> {
+    /** Commandes du MJ qui pilote depuis son téléphone ; ignorées si elles ne viennent pas de lui. */
+    override fun onMasterAction(token: String, action: MasterAction) {
+        viewModelScope.launch {
+            val s = _state.value
+            if (!s.remoteMaster || s.master?.token != token) return@launch
+            val round = s.round
+            val isGuesser = { id: Int -> s.guessers.any { it.id == id } }
+            when (action) {
+                is SearchAction -> if (s.screen == Screen.SELECTION) {
+                    onQueryChange(action.query)
+                    search(action.query)
+                }
+                is ToggleTrackAction -> if (s.screen == Screen.SELECTION) {
+                    (s.selection + s.searchResults).firstOrNull { it.id == action.trackId }?.let(::toggleSelection)
+                }
+                LaunchAction -> if (s.screen == Screen.SELECTION) launchRound()
+                TogglePauseAction -> if (s.screen == Screen.PLAYING && round?.isAudioLoading == false) togglePause()
+                PauseAction -> if (s.screen == Screen.PLAYING) pauseMusic()
+                is MarkFoundAction -> if (s.screen == Screen.PLAYING && round?.isFinal == false && isGuesser(action.playerId)) {
+                    if (round.songs.any { it.track.id == action.trackId && !it.isFound }) markFound(action.trackId, action.playerId)
+                }
+                is UnmarkFoundAction -> if (s.screen == Screen.PLAYING) unmarkFound(action.trackId)
+                RejectBuzzAction -> if (s.screen == Screen.PLAYING) rejectBuzz()
+                is ResolveFinalAction -> if (s.screen == Screen.PLAYING && round?.isFinal == true) {
+                    if (action.playerId == null || isGuesser(action.playerId)) resolveFinal(action.playerId)
+                }
+                NextRoundAction -> if (s.screen == Screen.REVEAL) nextRound()
+            }
+        }
+    }
+
+    /** Le MJ ne peut plus piloter depuis son téléphone : ses commandes passent sur l'hôte jusqu'à la fin de la manche. */
+    fun takeOverMaster() {
+        _state.update { it.copy(masterOnHost = true) }
+    }
+
+    private fun playerViews(s: GameUiState, isPlaying: Boolean): Map<String, PlayerView> {
         val round = s.round
         val phase = when (s.screen) {
             Screen.PLAYERS -> Phase.LOBBY
@@ -189,6 +263,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         } else {
             emptyList()
         }
+        // Commandes du MJ, calculées une seule fois : seul le MJ qui pilote depuis son téléphone les reçoit
+        val masterView = if (s.remoteMaster && inRound) masterView(s, isPlaying) else null
         return s.players.mapNotNull { player ->
             val token = player.token ?: return@mapNotNull null
             val isMaster = inRound && player.id == s.master?.id
@@ -211,9 +287,34 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
                 remaining = round?.remaining?.size ?: 0,
                 ranking = s.ranking.map { RankEntry(it.name, it.score, isYou = it.id == player.id) },
                 answers = answers,
+                masterOnHost = inRound && !s.remoteMaster,
+                master = masterView.takeIf { isMaster },
             )
         }.toMap()
     }
+
+    private fun masterView(s: GameUiState, isPlaying: Boolean): MasterView {
+        val round = s.round
+        return MasterView(
+            songsPerRound = s.settings.songsPerRound,
+            query = s.query,
+            searching = s.isLoading,
+            error = s.error,
+            results = s.searchResults.map { it.toInfo() },
+            selection = s.selection.map { it.toInfo() },
+            songs = round?.songs.orEmpty().map {
+                SongInfo(it.track.id, it.track.title, it.track.artist, it.track.coverUrl, it.foundBy, s.playerName(it.foundBy))
+            },
+            isPlaying = isPlaying,
+            guessers = s.guessers.map { PlayerRef(it.id, it.name) },
+            buzzerId = round?.buzzerId,
+            lockedOut = round?.lockedOut.orEmpty().mapNotNull { s.playerName(it) },
+            isLastRound = s.isLastRound,
+            nextMasterName = s.nextMaster?.name,
+        )
+    }
+
+    private fun Track.toInfo() = TrackInfo(id, title, artist, coverUrl)
 
     fun setSongsPerRound(count: Int) {
         _state.update {
@@ -247,7 +348,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
     // --- Sélection des chansons par le maître du jeu ---------------------------
 
     private fun goToSelection() {
-        _state.update { it.copy(screen = Screen.SELECTION, selection = emptyList(), query = "", error = null) }
+        _state.update {
+            it.copy(screen = Screen.SELECTION, selection = emptyList(), query = "", error = null, masterOnHost = false)
+        }
         search("")
     }
 
@@ -407,6 +510,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         serverJob?.cancel()
         server.stop()
         wifiLock.release()
+        BuzzerHostService.stop(getApplication())
         tone?.release()
     }
 
