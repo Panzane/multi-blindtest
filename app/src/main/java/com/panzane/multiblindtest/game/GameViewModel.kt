@@ -1,19 +1,35 @@
 package com.panzane.multiblindtest.game
 
 import android.app.Application
+import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.net.wifi.WifiManager
+import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.panzane.multiblindtest.audio.MultiPreviewPlayer
 import com.panzane.multiblindtest.data.deezer.DeezerRepository
 import com.panzane.multiblindtest.data.deezer.Track
+import com.panzane.multiblindtest.net.Answer
+import com.panzane.multiblindtest.net.BuzzerServer
+import com.panzane.multiblindtest.net.Phase
+import com.panzane.multiblindtest.net.PlayerView
+import com.panzane.multiblindtest.net.RankEntry
+import com.panzane.multiblindtest.net.localIpv4Address
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
 
-class GameViewModel(application: Application) : AndroidViewModel(application) {
+class GameViewModel(application: Application) : AndroidViewModel(application), BuzzerServer.Handler {
 
     private val deezer = DeezerRepository()
     val audio = MultiPreviewPlayer(application)
@@ -25,19 +41,178 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private var searchJob: Job? = null
     private var audioJob: Job? = null
 
-    // --- Joueurs -----------------------------------------------------------
+    // --- Mode buzzers ----------------------------------------------------------
 
-    fun addPlayer(name: String) {
-        val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
-        _state.update {
-            if (it.players.size >= MAX_PLAYERS) it
-            else it.copy(players = it.players + Player(nextPlayerId++, trimmed))
+    private val server by lazy {
+        val page = application.assets.open("buzzer.html").bufferedReader().use { it.readText() }
+        BuzzerServer(page, this)
+    }
+    private var serverJob: Job? = null
+    /** Démarrages / arrêts du serveur exécutés un par un, hors du thread principal. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val serverDispatcher = Dispatchers.IO.limitedParallelism(1)
+    /** Protège les ajouts de joueurs, faits depuis l'écran et depuis le serveur. */
+    private val playersLock = Any()
+
+    private val wifiLock: WifiManager.WifiLock =
+        (application.getSystemService(Context.WIFI_SERVICE) as WifiManager).createWifiLock(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            else @Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+            "multiblindtest:buzzers",
+        ).apply { setReferenceCounted(false) }
+
+    private val tone by lazy { runCatching { ToneGenerator(AudioManager.STREAM_MUSIC, 100) }.getOrNull() }
+
+    init {
+        // Chaque changement d'état est répercuté sur les téléphones des joueurs
+        viewModelScope.launch {
+            _state.collect { s -> if (s.settings.buzzers) server.publish(playerViews(s)) }
         }
     }
 
+    // --- Joueurs -----------------------------------------------------------
+
+    fun addPlayer(name: String) {
+        addPlayer(name, token = null)
+    }
+
+    private fun addPlayer(name: String, token: String?): Boolean = synchronized(playersLock) {
+        val trimmed = name.trim().take(MAX_NAME_LENGTH)
+        if (trimmed.isEmpty() || _state.value.players.size >= MAX_PLAYERS) return false
+        val player = Player(nextPlayerId++, trimmed, token = token)
+        _state.update { it.copy(players = it.players + player) }
+        true
+    }
+
     fun removePlayer(id: Int) {
+        val player = _state.value.players.firstOrNull { it.id == id } ?: return
         _state.update { s -> s.copy(players = s.players.filterNot { it.id == id }) }
+        player.token?.let(server::kick)
+    }
+
+    fun setBuzzerMode(enabled: Boolean) {
+        if (enabled == _state.value.settings.buzzers) return
+        _state.update { it.copy(settings = it.settings.copy(buzzers = enabled)) }
+        if (enabled) startServer() else stopServer()
+    }
+
+    private fun startServer() {
+        serverJob?.cancel()
+        serverJob = viewModelScope.launch {
+            val port = withContext(serverDispatcher) { runCatching { server.start() } }.getOrElse {
+                _state.update { it.copy(error = "Impossible de démarrer le serveur de buzzers.") }
+                return@launch
+            }
+            wifiLock.acquire()
+            launch {
+                server.connectedTokens.collect { tokens ->
+                    _state.update { s -> s.copy(connectedIds = s.players.filter { it.token in tokens }.map { it.id }.toSet()) }
+                }
+            }
+            // L'adresse change si le téléphone passe du wifi au partage de connexion : on la surveille
+            while (true) {
+                val ip = withContext(Dispatchers.IO) { localIpv4Address() }
+                _state.update { it.copy(hostUrl = ip?.let { address -> "http://$address:$port" }) }
+                delay(3_000)
+            }
+        }
+    }
+
+    private fun stopServer() {
+        serverJob?.cancel()
+        serverJob = null
+        wifiLock.release()
+        viewModelScope.launch(serverDispatcher) { server.stop() }
+        _state.update { s ->
+            s.copy(players = s.players.filterNot { it.hasBuzzer }, hostUrl = null, connectedIds = emptySet())
+        }
+    }
+
+    /** Un téléphone rejoint la partie, ou s'y reconnecte avec le jeton reçu à l'inscription. */
+    override fun onJoin(name: String, token: String?): BuzzerServer.JoinResult = synchronized(playersLock) {
+        val s = _state.value
+        if (token != null && s.players.any { it.token == token }) return BuzzerServer.JoinResult.Accepted(token)
+        val trimmed = name.trim().take(MAX_NAME_LENGTH)
+        val reason = when {
+            !s.settings.buzzers -> "Le mode buzzers n'est plus actif."
+            s.screen != Screen.PLAYERS -> "La partie a déjà commencé."
+            trimmed.isEmpty() -> "Entre ton prénom."
+            s.players.size >= MAX_PLAYERS -> "La partie est complète."
+            s.players.any { it.name.equals(trimmed, ignoreCase = true) } -> "Ce prénom est déjà pris."
+            else -> null
+        }
+        if (reason != null) return BuzzerServer.JoinResult.Rejected(reason)
+        val newToken = UUID.randomUUID().toString()
+        addPlayer(trimmed, newToken)
+        BuzzerServer.JoinResult.Accepted(newToken)
+    }
+
+    /** Le premier buzz reçu prend la main : la musique s'arrête et les autres buzzers sont bloqués. */
+    override fun onBuzz(token: String) {
+        while (true) {
+            val s = _state.value
+            val round = s.round ?: return
+            val player = s.players.firstOrNull { it.token == token } ?: return
+            val allowed = s.screen == Screen.PLAYING && !round.isAudioLoading && round.buzzerId == null &&
+                player.id != s.master?.id && player.id !in round.lockedOut && round.remaining.isNotEmpty()
+            if (!allowed) return
+            if (_state.compareAndSet(s, s.copy(round = round.copy(buzzerId = player.id)))) break
+        }
+        viewModelScope.launch {
+            audio.pause()
+            tone?.startTone(ToneGenerator.TONE_PROP_BEEP2, 200)
+        }
+    }
+
+    /** Mauvaise réponse : le joueur est bloqué jusqu'à la prochaine chanson trouvée, et la musique reprend. */
+    fun rejectBuzz() {
+        _state.update { s ->
+            val round = s.round ?: return@update s
+            val buzzerId = round.buzzerId ?: return@update s
+            s.copy(round = round.copy(buzzerId = null, lockedOut = round.lockedOut + buzzerId))
+        }
+        audio.resume(remainingIds())
+    }
+
+    private fun playerViews(s: GameUiState): Map<String, PlayerView> {
+        val round = s.round
+        val phase = when (s.screen) {
+            Screen.PLAYERS -> Phase.LOBBY
+            Screen.SELECTION -> Phase.SELECTION
+            Screen.PLAYING -> Phase.PLAYING
+            Screen.REVEAL -> Phase.REVEAL
+            Screen.RESULTS -> Phase.RESULTS
+        }
+        val inRound = phase == Phase.SELECTION || phase == Phase.PLAYING || phase == Phase.REVEAL
+        val answers = if (phase == Phase.REVEAL && round != null) {
+            round.songs.map { Answer(it.track.title, it.track.artist, s.playerName(it.foundBy)) }
+        } else {
+            emptyList()
+        }
+        return s.players.mapNotNull { player ->
+            val token = player.token ?: return@mapNotNull null
+            val isMaster = inRound && player.id == s.master?.id
+            val lockedOut = round != null && player.id in round.lockedOut
+            token to PlayerView(
+                name = player.name,
+                score = player.score,
+                phase = phase,
+                isMaster = isMaster,
+                masterName = s.master?.name,
+                roundNumber = s.roundIndex + 1,
+                totalRounds = s.totalRounds,
+                canBuzz = phase == Phase.PLAYING && round != null && !round.isAudioLoading &&
+                    round.buzzerId == null && !isMaster && !lockedOut && round.remaining.isNotEmpty(),
+                buzzerName = s.playerName(round?.buzzerId),
+                youBuzzed = round?.buzzerId == player.id,
+                lockedOut = lockedOut,
+                isFinal = round?.isFinal == true,
+                musicLoading = round?.isAudioLoading == true,
+                remaining = round?.remaining?.size ?: 0,
+                ranking = s.ranking.map { RankEntry(it.name, it.score, isYou = it.id == player.id) },
+                answers = answers,
+            )
+        }.toMap()
     }
 
     fun setSongsPerRound(count: Int) {
@@ -139,6 +314,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun togglePause() {
+        // Après un buzz, la musique ne reprend qu'une fois la réponse jugée
+        if (_state.value.round?.buzzerId != null) return
         if (audio.isPlaying.value) audio.pause() else audio.resume(remainingIds())
     }
 
@@ -159,6 +336,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     fun markFound(trackId: Long, playerId: Int) {
         audio.pause()
         setFoundBy(trackId, playerId)
+        // Une chanson trouvée débloque tout le monde
+        _state.update { it.copy(round = it.round?.copy(buzzerId = null, lockedOut = emptySet())) }
     }
 
     fun unmarkFound(trackId: Long) {
@@ -191,7 +370,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val round = _state.value.round ?: return
         if (playerId != null) round.remaining.forEach { setFoundBy(it.track.id, playerId) }
         audio.release()
-        _state.update { it.copy(screen = Screen.REVEAL) }
+        _state.update { it.copy(screen = Screen.REVEAL, round = it.round?.copy(buzzerId = null)) }
     }
 
     fun nextRound() {
@@ -225,6 +404,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         audio.release()
+        serverJob?.cancel()
+        server.stop()
+        wifiLock.release()
+        tone?.release()
     }
 
     private fun Throwable.toUserMessage(): String = when (this) {

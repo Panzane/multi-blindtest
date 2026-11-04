@@ -6,7 +6,11 @@ data class Player(
     val id: Int,
     val name: String,
     val score: Int = 0,
-)
+    /** Mode buzzers : identifie le téléphone du joueur ; null pour un joueur ajouté sur l'hôte (sans buzzer). */
+    val token: String? = null,
+) {
+    val hasBuzzer: Boolean get() = token != null
+}
 
 /** Une des chansons de la manche ; [foundBy] est l'id du joueur qui l'a trouvée. */
 data class Song(
@@ -24,6 +28,10 @@ data class Round(
     val masterId: Int,
     val songs: List<Song>,
     val isAudioLoading: Boolean = true,
+    /** Mode buzzers : joueur qui a buzzé et attend la décision du MJ. */
+    val buzzerId: Int? = null,
+    /** Joueurs ayant donné une mauvaise réponse, bloqués jusqu'à la prochaine chanson trouvée. */
+    val lockedOut: Set<Int> = emptySet(),
 ) {
     val remaining: List<Song> get() = songs.filterNot { it.isFound }
     val isFinal: Boolean get() = remaining.size <= FINAL_SONGS
@@ -36,6 +44,8 @@ data class GameSettings(
     val turnsPerPlayer: Int = 1,
     /** Tire au sort l'ordre des maîtres du jeu au lancement ; il reste le même d'un tour à l'autre. */
     val randomMasterOrder: Boolean = false,
+    /** Chaque joueur rejoint la partie avec son téléphone, qui lui sert de buzzer. */
+    val buzzers: Boolean = false,
 )
 
 enum class Screen { PLAYERS, SELECTION, PLAYING, REVEAL, RESULTS }
@@ -54,6 +64,10 @@ data class GameUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val round: Round? = null,
+    /** Mode buzzers : adresse de la page buzzer, null tant que le serveur n'est pas joignable. */
+    val hostUrl: String? = null,
+    /** Mode buzzers : joueurs dont le téléphone est connecté. */
+    val connectedIds: Set<Int> = emptySet(),
 ) {
     val totalRounds: Int get() = players.size * settings.turnsPerPlayer
     val master: Player? get() = masterAt(roundIndex)
@@ -75,6 +89,7 @@ data class GameUiState(
 
 const val MIN_PLAYERS = 2
 const val MAX_PLAYERS = 10
+const val MAX_NAME_LENGTH = 20
 const val FINAL_SONGS = 2
 const val DEFAULT_SONGS_PER_ROUND = 6
 val SONGS_PER_ROUND_RANGE = (FINAL_SONGS + 1)..10

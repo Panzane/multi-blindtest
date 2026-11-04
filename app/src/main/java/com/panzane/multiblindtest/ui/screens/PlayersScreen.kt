@@ -8,16 +8,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +45,7 @@ import com.panzane.multiblindtest.game.MAX_PLAYERS
 import com.panzane.multiblindtest.game.MIN_PLAYERS
 import com.panzane.multiblindtest.game.SONGS_PER_ROUND_RANGE
 import com.panzane.multiblindtest.game.TURNS_PER_PLAYER_RANGE
+import com.panzane.multiblindtest.ui.components.QrCode
 
 @Composable
 fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
@@ -55,12 +58,33 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
         }
     }
 
+    // Tout l'écran défile : en mode buzzers, le QR code prend de la place
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Multi Blindtest", style = MaterialTheme.typography.headlineMedium)
-        Text("Ajoutez les joueurs (${state.players.size}/$MAX_PLAYERS)", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Mode buzzers", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Chaque joueur buzze depuis son téléphone",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = state.settings.buzzers, onCheckedChange = viewModel::setBuzzerMode)
+        }
+        if (state.settings.buzzers) BuzzerInvite(state.hostUrl)
+
+        Text("Joueurs (${state.players.size}/$MAX_PLAYERS)", style = MaterialTheme.typography.titleMedium)
+        if (state.settings.buzzers) {
+            Text(
+                "Ajoutez ici les joueurs sans téléphone, et vous-même si vous jouez sur ce téléphone.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -80,10 +104,27 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
             }
         }
 
-        LazyColumn(Modifier.weight(1f)) {
-            items(state.players, key = { it.id }) { player ->
+        Column {
+            state.players.forEach { player ->
                 ListItem(
                     headlineContent = { Text(player.name) },
+                    supportingContent = if (player.hasBuzzer) {
+                        { Text(if (player.id in state.connectedIds) "Buzzer connecté" else "Buzzer déconnecté") }
+                    } else {
+                        null
+                    },
+                    leadingContent = if (player.hasBuzzer) {
+                        {
+                            Icon(
+                                Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = if (player.id in state.connectedIds) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    } else {
+                        null
+                    },
                     trailingContent = {
                         IconButton(onClick = { viewModel.removePlayer(player.id) }) {
                             Icon(Icons.Default.Close, contentDescription = "Retirer ${player.name}")
@@ -132,6 +173,36 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
                 if (state.players.size >= MIN_PLAYERS) "Commencer la partie"
                 else "Au moins $MIN_PLAYERS joueurs requis"
             )
+        }
+    }
+}
+
+/** QR code et adresse à ouvrir sur les téléphones des joueurs. */
+@Composable
+private fun BuzzerInvite(url: String?) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (url != null) {
+                QrCode(url, size = 120.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Scannez pour rejoindre", style = MaterialTheme.typography.titleSmall)
+                    Text(url, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Les téléphones doivent être sur le même wifi que celui-ci.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            } else {
+                Text(
+                    "Connectez ce téléphone à un wifi, ou activez son partage de connexion, " +
+                        "pour que les joueurs puissent le rejoindre.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }

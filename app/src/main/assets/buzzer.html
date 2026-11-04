@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="fr" translate="no">
+<head>
+<meta charset="utf-8">
+<!-- Évite le bandeau de traduction de Chrome, qui cache le haut de la page -->
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1c1b1f">
+<title>Multi Blindtest · Buzzer</title>
+<style>
+  :root {
+    --bg: #1c1b1f; --surface: #2b2930; --text: #f4eff4; --muted: #b8b2bd;
+    --accent: #ff7a3d; --accent-press: #d95a20; --ok: #3ec27a; --off: #4a4650; --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100dvh; padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .hidden { display: none !important; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  header .name { font-weight: 700; font-size: 1.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .score { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .sub { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center; padding: 16px 0; }
+  h1 { font-size: 1.6rem; margin: 0; }
+  p { margin: 0; line-height: 1.4; }
+  .message { font-size: 1.25rem; font-weight: 600; max-width: 22em; }
+  .hint { color: var(--muted); }
+  form { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+  input { font-size: 1.2rem; padding: 14px; border-radius: 12px; border: 2px solid var(--off);
+    background: var(--surface); color: var(--text); width: 100%; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button.primary { font-size: 1.2rem; font-weight: 700; padding: 14px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #1c1b1f; }
+  button.primary:disabled { opacity: .5; }
+  .error { color: var(--danger); min-height: 1.4em; }
+  #buzz { width: min(78vw, 46vh); aspect-ratio: 1; border-radius: 50%; border: 0;
+    font-size: clamp(2rem, 10vw, 3.2rem); font-weight: 900; letter-spacing: .05em; color: #1c1b1f;
+    background: var(--accent); box-shadow: 0 10px 0 var(--accent-press), 0 18px 30px rgba(0,0,0,.4);
+    touch-action: manipulation; user-select: none; -webkit-user-select: none; transition: transform .05s; }
+  #buzz.pressed { transform: translateY(8px); box-shadow: 0 2px 0 var(--accent-press); }
+  #buzz.won { background: var(--ok); box-shadow: 0 10px 0 #2a8f58; }
+  #buzz:disabled:not(.won) { background: var(--off); box-shadow: 0 10px 0 #35323a; color: var(--muted); }
+  ol, ul { list-style: none; padding: 0; margin: 0; width: 100%; max-width: 420px; text-align: left; }
+  li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 10px;
+    background: var(--surface); margin-bottom: 6px; }
+  li.you { outline: 2px solid var(--accent); }
+  li .song { display: flex; flex-direction: column; min-width: 0; }
+  li .song span:last-child { color: var(--muted); font-size: .9rem; }
+  li .found { color: var(--ok); white-space: nowrap; }
+  li .missed { color: var(--muted); white-space: nowrap; }
+  #offline { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; text-align: center;
+    background: var(--danger); color: #1c1b1f; font-weight: 600; }
+</style>
+</head>
+<body>
+<header id="top" class="hidden">
+  <div>
+    <div class="name" id="me"></div>
+    <div class="sub" id="round"></div>
+  </div>
+  <div class="score" id="score"></div>
+</header>
+
+<main>
+  <!-- Inscription -->
+  <section id="join" class="hidden">
+    <form id="joinForm">
+      <h1>Multi Blindtest</h1>
+      <p class="hint">Entre ton prénom pour rejoindre la partie.</p>
+      <input id="name" maxlength="20" autocomplete="given-name" autocapitalize="words" placeholder="Ton prénom" required>
+      <button class="primary" id="joinBtn" type="submit">Rejoindre</button>
+      <p class="error" id="joinError"></p>
+    </form>
+  </section>
+
+  <!-- Partie -->
+  <section id="game" class="hidden" style="display:contents">
+    <p class="message" id="message"></p>
+    <p class="hint" id="hint"></p>
+    <button id="buzz" class="hidden" type="button">BUZZ</button>
+    <ol id="ranking" class="hidden"></ol>
+    <ul id="answers" class="hidden"></ul>
+  </section>
+</main>
+
+<div id="offline" class="hidden">Connexion perdue… reconnexion</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const store = {
+    get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
+
+  let ws = null;
+  let joined = false;
+  let retryDelay = 500;
+  let retryTimer = null;
+  let view = null;
+  let pendingJoin = false;
+
+  function show(id, visible) { $(id).classList.toggle('hidden', !visible); }
+
+  function showJoin(error) {
+    joined = false;
+    show('top', false); show('game', false); show('join', true);
+    $('joinError').textContent = error || '';
+    $('joinBtn').disabled = false;
+    if (!$('name').value) $('name').value = store.get('name') || '';
+  }
+
+  function connect() {
+    clearTimeout(retryTimer);
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => {
+      retryDelay = 500;
+      show('offline', false);
+      const token = store.get('token');
+      const name = store.get('name');
+      // Reconnexion automatique avec le jeton reçu à l'inscription
+      if (name && (token || pendingJoin)) {
+        pendingJoin = false;
+        send(token ? { type: 'join', name, token } : { type: 'join', name });
+      } else {
+        showJoin();
+      }
+    };
+    ws.onmessage = e => handle(JSON.parse(e.data));
+    ws.onclose = () => {
+      ws = null;
+      if (joined || store.get('token')) show('offline', true);
+      retryTimer = setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 4000);
+    };
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'welcome':
+        store.set('token', msg.token);
+        joined = true;
+        show('join', false); show('top', true); show('game', true);
+        break;
+      case 'rejected':
+        store.set('token', null);
+        showJoin(msg.reason);
+        break;
+      case 'kicked':
+        store.set('token', null);
+        showJoin('Tu as été retiré de la partie.');
+        break;
+      case 'state':
+        view = msg;
+        render();
+        break;
+    }
+  }
+
+  function render() {
+    const v = view;
+    if (!v) return;
+    $('me').textContent = v.name;
+    $('score').textContent = `${v.score} pt${v.score > 1 ? 's' : ''}`;
+    const inRound = v.phase === 'selection' || v.phase === 'playing' || v.phase === 'reveal';
+    $('round').textContent = inRound ? `Tour ${v.roundNumber}/${v.totalRounds} · MJ : ${v.masterName || ''}` : '';
+
+    let message = '', hint = '', buzz = false, ranking = false, answers = false;
+    switch (v.phase) {
+      case 'lobby':
+        message = 'Tu es dans la partie !';
+        hint = 'En attente du lancement par le maître du jeu…';
+        ranking = true;
+        break;
+      case 'selection':
+        if (v.isMaster) {
+          message = "C'est toi le MJ !";
+          hint = 'Prends le téléphone hôte pour choisir tes chansons.';
+        } else {
+          message = `${v.masterName} choisit ses chansons…`;
+          hint = 'Prépare-toi à buzzer.';
+        }
+        break;
+      case 'playing':
+        if (v.isMaster) {
+          message = "Tu es MJ pour cette manche";
+          hint = 'Valide les réponses sur le téléphone hôte.';
+          break;
+        }
+        buzz = true;
+        if (v.musicLoading) { message = 'Chargement des extraits…'; }
+        else if (v.youBuzzed) { message = 'À toi ! Donne ta réponse'; hint = v.isFinal ? 'Il faut donner les 2 chansons.' : ''; }
+        else if (v.buzzerName) { message = `${v.buzzerName} a buzzé`; }
+        else if (v.lockedOut) { message = 'Mauvaise réponse'; hint = "Bloqué jusqu'à la prochaine chanson trouvée."; }
+        else { message = v.isFinal ? 'Finale : donne les 2 chansons !' : `${v.remaining} chansons à trouver`; }
+        break;
+      case 'reveal':
+        message = 'Les réponses';
+        answers = true;
+        break;
+      case 'results':
+        message = 'Partie terminée !';
+        ranking = true;
+        break;
+    }
+    $('message').textContent = message;
+    $('hint').textContent = hint;
+    show('hint', !!hint);
+
+    const b = $('buzz');
+    show('buzz', buzz);
+    b.disabled = !v.canBuzz;
+    b.classList.toggle('won', v.youBuzzed);
+    b.classList.remove('pressed');
+    b.textContent = v.youBuzzed ? 'À TOI !' : (v.lockedOut ? 'BLOQUÉ' : 'BUZZ');
+
+    show('ranking', ranking);
+    if (ranking) {
+      $('ranking').replaceChildren(...v.ranking.map((p, i) => {
+        const li = document.createElement('li');
+        if (p.isYou) li.className = 'you';
+        const n = document.createElement('span');
+        n.textContent = v.phase === 'results' ? `${i + 1}. ${p.name}` : p.name;
+        const s = document.createElement('span');
+        s.textContent = v.phase === 'results' ? `${p.score} pt${p.score > 1 ? 's' : ''}` : '';
+        li.append(n, s);
+        return li;
+      }));
+    }
+
+    show('answers', answers);
+    if (answers) {
+      $('answers').replaceChildren(...v.answers.map(a => {
+        const li = document.createElement('li');
+        const song = document.createElement('div');
+        song.className = 'song';
+        const t = document.createElement('span'); t.textContent = a.title;
+        const ar = document.createElement('span'); ar.textContent = a.artist;
+        song.append(t, ar);
+        const who = document.createElement('span');
+        who.className = a.foundBy ? 'found' : 'missed';
+        who.textContent = a.foundBy || 'personne';
+        li.append(song, who);
+        return li;
+      }));
+    }
+  }
+
+  // pointerdown plutôt que click : le buzz part dès que le doigt touche l'écran
+  $('buzz').addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if ($('buzz').disabled) return;
+    $('buzz').classList.add('pressed');
+    if (navigator.vibrate) navigator.vibrate(60);
+    send({ type: 'buzz' });
+  });
+
+  $('joinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('name').value.trim();
+    if (!name) return;
+    store.set('name', name);
+    store.set('token', null);
+    $('joinBtn').disabled = true;
+    $('joinError').textContent = '';
+    if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'join', name });
+    else { pendingJoin = true; connect(); }
+  });
+
+  // Au retour de veille, on se reconnecte tout de suite
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { retryDelay = 500; connect(); }
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>

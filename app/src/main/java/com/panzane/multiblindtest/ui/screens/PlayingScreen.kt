@@ -1,5 +1,6 @@
 package com.panzane.multiblindtest.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,11 +16,15 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -67,8 +72,16 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
             textAlign = TextAlign.Center,
         )
 
+        val buzzerName = state.playerName(round.buzzerId)
         if (round.isAudioLoading) {
             CircularProgressIndicator()
+        } else if (round.buzzerId != null && buzzerName != null) {
+            BuzzCard(
+                name = buzzerName,
+                isFinal = round.isFinal,
+                onFinalCorrect = { viewModel.resolveFinal(round.buzzerId) },
+                onWrong = viewModel::rejectBuzz,
+            )
         } else {
             FilledIconButton(onClick = viewModel::togglePause, modifier = Modifier.size(72.dp)) {
                 Icon(
@@ -79,6 +92,15 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
             }
         }
 
+        if (round.lockedOut.isNotEmpty()) {
+            Text(
+                "Bloqués jusqu'à la prochaine chanson trouvée : " +
+                    round.lockedOut.mapNotNull { state.playerName(it) }.joinToString(),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+            )
+        }
+
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             items(round.songs, key = { it.track.id }) { song ->
                 SongItem(
@@ -86,7 +108,16 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
                     foundByName = state.playerName(song.foundBy),
                     // En finale, les deux dernières se valident ensemble
                     enabled = !round.isAudioLoading && (song.isFound || !round.isFinal),
-                    onClick = { viewModel.pauseMusic(); pendingSongId = song.track.id },
+                    onClick = {
+                        val buzzerId = round.buzzerId
+                        if (buzzerId != null && !song.isFound) {
+                            // Un joueur a buzzé : la chanson touchée est celle qu'il a donnée
+                            viewModel.markFound(song.track.id, buzzerId)
+                        } else {
+                            viewModel.pauseMusic()
+                            pendingSongId = song.track.id
+                        }
+                    },
                 )
             }
         }
@@ -135,6 +166,42 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
             noOneLabel = "Personne",
             onNoOne = { showFinalDialog = false; viewModel.resolveFinal(null) },
         )
+    }
+}
+
+/** Un joueur a buzzé : le MJ valide la chanson donnée ou refuse la réponse. */
+@Composable
+private fun BuzzCard(name: String, isFinal: Boolean, onFinalCorrect: () -> Unit, onWrong: () -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("$name a buzzé !", style = MaterialTheme.typography.headlineSmall)
+            Text(
+                if (isFinal) "Il faut donner les $FINAL_SONGS chansons."
+                else "Bonne réponse ? Touchez la chanson trouvée.",
+                textAlign = TextAlign.Center,
+            )
+            if (isFinal) {
+                Button(onClick = onFinalCorrect, modifier = Modifier.fillMaxWidth()) {
+                    Text("Les $FINAL_SONGS sont bonnes (+$FINAL_SONGS)")
+                }
+            }
+            val onCard = MaterialTheme.colorScheme.onPrimaryContainer
+            OutlinedButton(
+                onClick = onWrong,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = onCard),
+                border = BorderStroke(1.dp, onCard),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Mauvaise réponse")
+            }
+        }
     }
 }
 

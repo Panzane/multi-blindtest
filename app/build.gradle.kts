@@ -73,4 +73,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.media3.exoplayer)
     implementation(libs.coil.compose)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.websockets)
+    implementation(libs.zxing.core)
 }
