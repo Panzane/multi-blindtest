@@ -49,6 +49,7 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
     private val tokens = ConcurrentHashMap<Long, String>()
     /** Dernier état envoyé à chaque joueur, pour le renvoyer à la reconnexion. */
     private val lastViews = ConcurrentHashMap<String, PlayerView>()
+    @Volatile private var lobby = LobbyMessage(emptyList())
 
     private val _connectedTokens = MutableStateFlow<Set<String>>(emptySet())
     /** Joueurs dont au moins un téléphone est connecté. */
@@ -92,6 +93,7 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
         sessions.clear()
         tokens.clear()
         lastViews.clear()
+        lobby = LobbyMessage(emptyList())
         _connectedTokens.value = emptySet()
     }
 
@@ -101,6 +103,15 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
             if (lastViews.put(token, view) != view) sendTo(token, view)
         }
         lastViews.keys.retainAll(views.keys)
+    }
+
+    /** Met à jour les prénoms proposés aux téléphones pas encore inscrits. */
+    fun publishLobby(names: List<String>) {
+        val message = LobbyMessage(names)
+        if (message == lobby) return
+        lobby = message
+        val text = encode(message)
+        sessions.forEach { (id, session) -> if (!tokens.containsKey(id)) session.outgoing.trySend(Frame.Text(text)) }
     }
 
     /** Déconnecte un joueur retiré par le MJ. */
@@ -116,6 +127,7 @@ class BuzzerServer(private val pageHtml: String, private val handler: Handler) {
     private suspend fun handleSession(session: DefaultWebSocketSession) {
         val id = nextSessionId.incrementAndGet()
         sessions[id] = session
+        session.send(lobby)
         try {
             for (frame in session.incoming) {
                 if (frame !is Frame.Text) continue

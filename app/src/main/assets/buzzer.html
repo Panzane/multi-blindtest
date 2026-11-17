@@ -36,6 +36,10 @@
     background: var(--accent); color: #1c1b1f; }
   button.primary:disabled { opacity: .5; }
   .error { color: var(--danger); min-height: 1.4em; }
+  .names { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .names button { font-size: 1.1rem; font-weight: 600; padding: 12px 18px; border-radius: 12px;
+    border: 2px solid var(--accent); background: transparent; color: var(--text); }
+  .names button:disabled { opacity: .5; }
   #buzz { width: min(78vw, 46vh); aspect-ratio: 1; border-radius: 50%; border: 0;
     font-size: clamp(2rem, 10vw, 3.2rem); font-weight: 900; letter-spacing: .05em; color: #1c1b1f;
     background: var(--accent); box-shadow: 0 10px 0 var(--accent-press), 0 18px 30px rgba(0,0,0,.4);
@@ -100,7 +104,11 @@
   <section id="join" class="hidden">
     <form id="joinForm">
       <h1>Multi Blindtest</h1>
-      <p class="hint">Entre ton prénom pour rejoindre la partie.</p>
+      <div id="claim" class="hidden">
+        <p class="hint">Tu es déjà dans la partie ? Touche ton prénom :</p>
+        <div class="names" id="claimNames"></div>
+      </div>
+      <p class="hint" id="joinHint">Entre ton prénom pour rejoindre la partie.</p>
       <input id="name" maxlength="20" autocomplete="given-name" autocapitalize="words" placeholder="Ton prénom" required>
       <button class="primary" id="joinBtn" type="submit">Rejoindre</button>
       <p class="error" id="joinError"></p>
@@ -206,6 +214,31 @@
     } catch {}
   }
 
+  // Blocage minuté : compte à rebours local, démarré quand le blocage arrive (l'hôte le lève au bout du délai)
+  let lockoutEnd = 0;
+  let lockoutTimer = null;
+  let wasLockedOut = false;
+
+  function lockoutCountdown() {
+    const left = Math.max(1, Math.ceil((lockoutEnd - Date.now()) / 1000));
+    return `Bloqué encore ${left} seconde${left > 1 ? 's' : ''}.`;
+  }
+
+  function trackLockout(v) {
+    const timed = v.phase === 'playing' && v.lockedOut && !!v.lockoutSeconds;
+    if (timed && !wasLockedOut) {
+      lockoutEnd = Date.now() + v.lockoutSeconds * 1000;
+      clearInterval(lockoutTimer);
+      lockoutTimer = setInterval(() => {
+        if (view && view.lockedOut && !view.buzzerName) $('hint').textContent = lockoutCountdown();
+      }, 250);
+    } else if (!timed) {
+      clearInterval(lockoutTimer);
+      lockoutTimer = null;
+    }
+    wasLockedOut = timed;
+  }
+
   function show(id, visible) { $(id).classList.toggle('hidden', !visible); }
 
   function showJoin(error) {
@@ -213,6 +246,7 @@
     show('top', false); show('game', false); show('join', true);
     $('joinError').textContent = error || '';
     $('joinBtn').disabled = false;
+    $('claimNames').querySelectorAll('button').forEach(b => { b.disabled = false; });
     if (!$('name').value) $('name').value = store.get('name') || '';
   }
 
@@ -253,6 +287,9 @@
         joined = true;
         show('join', false); show('top', true); show('game', true);
         break;
+      case 'lobby':
+        renderLobby(msg.names);
+        break;
       case 'rejected':
         store.set('token', null);
         showJoin(msg.reason);
@@ -275,6 +312,7 @@
   function render() {
     const v = view;
     if (!v) return;
+    trackLockout(v);
     $('me').textContent = v.name;
     $('score').textContent = `${v.score} pt${v.score > 1 ? 's' : ''}`;
     const inRound = v.phase === 'selection' || v.phase === 'playing' || v.phase === 'reveal';
@@ -314,7 +352,10 @@
         if (v.musicLoading) { message = 'Chargement des extraits…'; }
         else if (v.youBuzzed) { message = 'À toi ! Donne ta réponse'; hint = v.isFinal ? 'Il faut donner les 2 chansons.' : ''; }
         else if (v.buzzerName) { message = `${v.buzzerName} a buzzé`; }
-        else if (v.lockedOut) { message = 'Mauvaise réponse'; hint = "Bloqué jusqu'à la prochaine chanson trouvée."; }
+        else if (v.lockedOut) {
+          message = 'Mauvaise réponse';
+          hint = v.lockoutSeconds ? lockoutCountdown() : "Bloqué jusqu'à la prochaine chanson trouvée.";
+        }
         else { message = v.isFinal ? 'Finale : donne les 2 chansons !' : `${v.remaining} chansons à trouver`; }
         break;
       case 'reveal':
@@ -425,7 +466,9 @@
       $('mjSelection').replaceChildren(...m.selection.map(t =>
         trackItem(t, 'Retirer', () => send({ type: 'toggleTrack', trackId: t.id }), 'selected')));
       const selected = new Set(m.selection.map(t => t.id));
-      $('mjResultsTitle').textContent = m.searching ? 'Recherche…' : (m.query ? 'Résultats' : 'Titres du moment');
+      $('mjResultsTitle').textContent = m.searching ? 'Recherche…'
+        : m.results.length ? 'Résultats'
+        : m.query ? 'Aucun titre trouvé.' : 'Recherche un titre, un artiste ou colle un lien de playlist.';
       $('mjResults').replaceChildren(...m.results.filter(t => !selected.has(t.id)).map(t =>
         trackItem(t, 'Ajouter', full ? null : () => send({ type: 'toggleTrack', trackId: t.id }))));
       const launch = $('mjLaunch');
@@ -447,8 +490,7 @@
         show('mjFinalOk', v.isFinal);
         $('mjFinalOk').textContent = 'Les 2 sont bonnes (+2)';
       }
-      $('mjLocked').textContent = m.lockedOut.length
-        ? `Bloqués jusqu'à la prochaine chanson trouvée : ${m.lockedOut.join(', ')}` : '';
+      $('mjLocked').textContent = m.lockedOut.length ? `${m.lockoutLabel} : ${m.lockedOut.join(', ')}` : '';
       show('mjLocked', m.lockedOut.length > 0);
 
       $('mjSongs').replaceChildren(...m.songs.map(s => {
@@ -507,16 +549,33 @@
     send({ type: 'buzz' });
   });
 
-  $('joinForm').addEventListener('submit', e => {
-    e.preventDefault();
-    const name = $('name').value.trim();
-    if (!name) return;
+  function joinAs(name) {
     store.set('name', name);
     store.set('token', null);
     $('joinBtn').disabled = true;
+    $('claimNames').querySelectorAll('button').forEach(b => { b.disabled = true; });
     $('joinError').textContent = '';
     if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'join', name });
     else { pendingJoin = true; connect(); }
+  }
+
+  /** Joueurs ajoutés sur l'hôte sans téléphone : un bouton par prénom pour les reprendre. */
+  function renderLobby(names) {
+    $('claimNames').replaceChildren(...names.map(name => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = name;
+      b.addEventListener('click', () => joinAs(name));
+      return b;
+    }));
+    show('claim', names.length > 0);
+    $('joinHint').textContent = names.length > 0 ? 'Sinon, entre ton prénom :' : 'Entre ton prénom pour rejoindre la partie.';
+  }
+
+  $('joinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('name').value.trim();
+    if (name) joinAs(name);
   });
 
   // Au retour de veille, on se reconnecte tout de suite

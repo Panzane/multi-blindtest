@@ -1,10 +1,15 @@
 package com.panzane.multiblindtest.audio
 
 import android.content.Context
+import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import com.panzane.multiblindtest.data.deezer.Track
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * Joue plusieurs extraits Deezer simultanément, en boucle : un ExoPlayer par chanson.
  * La gestion du focus audio est désactivée (par défaut) pour que les lecteurs ne s'interrompent pas entre eux.
+ * Chaque extrait passe par un [LoudnessNormalizer] pour que toutes les chansons sonnent aussi fort.
  */
 class MultiPreviewPlayer(private val context: Context) {
 
@@ -27,10 +33,11 @@ class MultiPreviewPlayer(private val context: Context) {
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
 
+    @OptIn(UnstableApi::class)
     fun load(tracks: List<Track>) {
         release()
         tracks.forEach { track ->
-            players[track.id] = ExoPlayer.Builder(context).build().apply {
+            players[track.id] = ExoPlayer.Builder(context, normalizedRenderers()).build().apply {
                 repeatMode = Player.REPEAT_MODE_ONE
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
@@ -45,6 +52,20 @@ class MultiPreviewPlayer(private val context: Context) {
                 prepare()
             }
         }
+    }
+
+    /** Rendu audio avec un [LoudnessNormalizer] propre au lecteur (la mesure est propre à chaque extrait). */
+    @OptIn(UnstableApi::class)
+    private fun normalizedRenderers() = object : DefaultRenderersFactory(context) {
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioTrackPlaybackParams: Boolean,
+        ): AudioSink = DefaultAudioSink.Builder(context)
+            .setAudioProcessors(arrayOf(LoudnessNormalizer()))
+            .setEnableFloatOutput(enableFloatOutput)
+            .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+            .build()
     }
 
     /** Attend que tous les extraits soient chargés, pour qu'ils démarrent ensemble. */

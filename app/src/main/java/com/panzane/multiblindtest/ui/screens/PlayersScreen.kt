@@ -1,5 +1,10 @@
 package com.panzane.multiblindtest.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -36,12 +42,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.panzane.multiblindtest.game.GameUiState
 import com.panzane.multiblindtest.game.GameViewModel
+import com.panzane.multiblindtest.game.Lockout
 import com.panzane.multiblindtest.game.MAX_PLAYERS
 import com.panzane.multiblindtest.game.MIN_PLAYERS
 import com.panzane.multiblindtest.game.SONGS_PER_ROUND_RANGE
@@ -51,6 +61,18 @@ import com.panzane.multiblindtest.ui.components.QrCode
 @Composable
 fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
     var name by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    // Android 13+ : sans cette permission, la notification « Partie en cours » du mode buzzers reste invisible.
+    // Le mode s'active quelle que soit la réponse : le service tourne même sans notification affichée.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val onBuzzerModeChange = { enabled: Boolean ->
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        viewModel.setBuzzerMode(enabled)
+    }
     val canAdd = name.isNotBlank() && state.players.size < MAX_PLAYERS
     val submit = {
         if (canAdd) {
@@ -74,7 +96,7 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = state.settings.buzzers, onCheckedChange = viewModel::setBuzzerMode)
+            Switch(checked = state.settings.buzzers, onCheckedChange = onBuzzerModeChange)
         }
         if (state.settings.buzzers) BuzzerInvite(state.hostUrl)
 
@@ -163,6 +185,22 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Ordre des MJ aléatoire", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Switch(checked = settings.randomMasterOrder, onCheckedChange = viewModel::setRandomMasterOrder)
+        }
+        if (settings.buzzers) {
+            Text("Après une mauvaise réponse, le joueur est bloqué", style = MaterialTheme.typography.bodyLarge)
+            Lockout.entries.forEach { lockout ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().selectable(
+                        selected = settings.lockout == lockout,
+                        onClick = { viewModel.setLockout(lockout) },
+                        role = Role.RadioButton,
+                    ),
+                ) {
+                    RadioButton(selected = settings.lockout == lockout, onClick = null)
+                    Text(lockout.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
         }
 
         Text(

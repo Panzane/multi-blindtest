@@ -7,6 +7,8 @@
     <!-- Mode buzzers : service au premier plan pour que l'app ne soit pas gelée en arrière-plan -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- Android 13+ : afficher la notification « Partie en cours » du mode buzzers -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="true"

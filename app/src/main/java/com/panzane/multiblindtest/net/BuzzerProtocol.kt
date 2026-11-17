@@ -85,6 +85,11 @@ data class WelcomeMessage(val token: String) : ServerMessage
 @SerialName("rejected")
 data class RejectedMessage(val reason: String) : ServerMessage
 
+/** Envoyé aux téléphones pas encore inscrits : joueurs déjà ajoutés sur l'hôte, sans téléphone, à reprendre. */
+@Serializable
+@SerialName("lobby")
+data class LobbyMessage(val names: List<String>) : ServerMessage
+
 /** Le MJ a retiré ce joueur de la partie. */
 @Serializable
 @SerialName("kicked")
@@ -105,8 +110,10 @@ data class PlayerView(
     /** Joueur qui a la main après un buzz. */
     val buzzerName: String? = null,
     val youBuzzed: Boolean = false,
-    /** Mauvaise réponse : bloqué jusqu'à la prochaine chanson trouvée. */
+    /** Mauvaise réponse : bloqué jusqu'à la prochaine chanson trouvée, ou pendant [lockoutSeconds]. */
     val lockedOut: Boolean = false,
+    /** Durée du blocage après une mauvaise réponse ; null s'il dure jusqu'à la prochaine chanson trouvée. */
+    val lockoutSeconds: Int? = null,
     val isFinal: Boolean = false,
     val musicLoading: Boolean = false,
     val remaining: Int = 0,
@@ -134,6 +141,8 @@ data class MasterView(
     val guessers: List<PlayerRef> = emptyList(),
     val buzzerId: Int? = null,
     val lockedOut: List<String> = emptyList(),
+    /** Libellé du blocage, pour « Bloqués … : noms ». */
+    val lockoutLabel: String = "",
     // Révélation
     val isLastRound: Boolean = false,
     val nextMasterName: String? = null,

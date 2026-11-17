@@ -94,7 +94,7 @@ fun PlayingScreen(state: GameUiState, viewModel: GameViewModel) {
 
         if (round.lockedOut.isNotEmpty()) {
             Text(
-                "Bloqués jusqu'à la prochaine chanson trouvée : " +
+                "${state.settings.lockout.lockedLabel} : " +
                     round.lockedOut.mapNotNull { state.playerName(it) }.joinToString(),
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,

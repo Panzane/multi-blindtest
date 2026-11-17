@@ -70,7 +70,7 @@ fun RemotePlayingScreen(state: GameUiState, viewModel: GameViewModel) {
                 round.isAudioLoading -> "Chargement des extraits…"
                 buzzerName != null && round.buzzerId == owner?.id -> "À toi ! Donne ta réponse"
                 buzzerName != null -> "$buzzerName a buzzé"
-                ownerLocked -> "Mauvaise réponse : bloqué jusqu'à la prochaine chanson trouvée"
+                ownerLocked -> "Mauvaise réponse : ${state.settings.lockout.description}"
                 round.isFinal -> "Finale : il faut donner les $FINAL_SONGS chansons !"
                 else -> "${round.remaining.size} chansons à trouver"
             },

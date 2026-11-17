@@ -65,6 +65,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         BuzzerServer(page, this)
     }
     private var serverJob: Job? = null
+    /** Blocages de [LOCKOUT_SECONDS] en cours, par joueur. */
+    private val lockoutJobs = mutableMapOf<Int, Job>()
     /** Démarrages / arrêts du serveur exécutés un par un, hors du thread principal. */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val serverDispatcher = Dispatchers.IO.limitedParallelism(1)
@@ -84,7 +86,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         // Chaque changement d'état est répercuté sur les téléphones des joueurs
         viewModelScope.launch {
             combine(_state, audio.isPlaying, ::Pair).collect { (s, isPlaying) ->
-                if (s.settings.buzzers) server.publish(playerViews(s, isPlaying))
+                if (s.settings.buzzers) {
+                    server.publish(playerViews(s, isPlaying))
+                    server.publishLobby(if (s.screen == Screen.PLAYERS) s.claimablePlayers.map { it.name } else emptyList())
+                }
             }
         }
     }
@@ -153,7 +158,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         BuzzerHostService.stop(getApplication())
         viewModelScope.launch(serverDispatcher) { server.stop() }
         _state.update { s ->
-            s.copy(players = s.players.filterNot { it.hasBuzzer }, hostUrl = null, connectedIds = emptySet())
+            // Les joueurs gardent leur place, sans téléphone : on peut continuer sur un seul téléphone
+            s.copy(players = s.players.map { it.copy(token = null) }, hostUrl = null, connectedIds = emptySet())
         }
     }
 
@@ -162,6 +168,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         val s = _state.value
         if (token != null && s.players.any { it.token == token }) return BuzzerServer.JoinResult.Accepted(token)
         val trimmed = name.trim().take(MAX_NAME_LENGTH)
+        // Joueur déjà ajouté sur l'hôte (partie précédente sur un seul téléphone) : son téléphone le reprend
+        val claimable = s.claimablePlayers.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+        if (s.settings.buzzers && s.screen == Screen.PLAYERS && claimable != null) {
+            val newToken = UUID.randomUUID().toString()
+            _state.update { st -> st.copy(players = st.players.map { if (it.id == claimable.id) it.copy(token = newToken) else it }) }
+            return BuzzerServer.JoinResult.Accepted(newToken)
+        }
         val reason = when {
             !s.settings.buzzers -> "Le mode buzzers n'est plus actif."
             s.screen != Screen.PLAYERS -> "La partie a déjà commencé."
@@ -202,14 +215,35 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         }
     }
 
-    /** Mauvaise réponse : le joueur est bloqué jusqu'à la prochaine chanson trouvée, et la musique reprend. */
+    /**
+     * Mauvaise réponse : le joueur est bloqué (jusqu'à la prochaine chanson trouvée, ou [LOCKOUT_SECONDS]
+     * selon l'option choisie), et la musique reprend.
+     */
     fun rejectBuzz() {
+        val before = _state.value
+        val buzzerId = before.round?.buzzerId ?: return
         _state.update { s ->
             val round = s.round ?: return@update s
-            val buzzerId = round.buzzerId ?: return@update s
             s.copy(round = round.copy(buzzerId = null, lockedOut = round.lockedOut + buzzerId))
         }
+        if (before.settings.lockout == Lockout.TIMED) {
+            lockoutJobs.remove(buzzerId)?.cancel()
+            lockoutJobs[buzzerId] = viewModelScope.launch {
+                delay(LOCKOUT_SECONDS * 1_000L)
+                lockoutJobs.remove(buzzerId)
+                _state.update { s -> s.copy(round = s.round?.let { it.copy(lockedOut = it.lockedOut - buzzerId) }) }
+            }
+        }
         audio.resume(remainingIds())
+    }
+
+    private fun cancelLockouts() {
+        lockoutJobs.values.forEach { it.cancel() }
+        lockoutJobs.clear()
+    }
+
+    fun setLockout(lockout: Lockout) {
+        _state.update { it.copy(settings = it.settings.copy(lockout = lockout)) }
     }
 
     /** Commandes du MJ qui pilote depuis son téléphone ; ignorées si elles ne viennent pas de lui. */
@@ -282,6 +316,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
                 buzzerName = s.playerName(round?.buzzerId),
                 youBuzzed = round?.buzzerId == player.id,
                 lockedOut = lockedOut,
+                lockoutSeconds = if (s.settings.lockout == Lockout.TIMED) LOCKOUT_SECONDS else null,
                 isFinal = round?.isFinal == true,
                 musicLoading = round?.isAudioLoading == true,
                 remaining = round?.remaining?.size ?: 0,
@@ -309,6 +344,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
             guessers = s.guessers.map { PlayerRef(it.id, it.name) },
             buzzerId = round?.buzzerId,
             lockedOut = round?.lockedOut.orEmpty().mapNotNull { s.playerName(it) },
+            lockoutLabel = s.settings.lockout.lockedLabel,
             isLastRound = s.isLastRound,
             nextMasterName = s.nextMaster?.name,
         )
@@ -361,13 +397,17 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
     /** Recherche par titre / artiste ; un lien de playlist Deezer affiche ses titres. */
     fun search(query: String = _state.value.query) {
         searchJob?.cancel()
+        // Pas de suggestions par défaut : sans recherche, la liste reste vide.
+        if (query.isBlank()) {
+            _state.update { it.copy(searchResults = emptyList(), isLoading = false, error = null) }
+            return
+        }
         searchJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             runCatching {
                 val playlistId = DeezerRepository.parsePlaylistId(query)
                 when {
                     playlistId != null -> deezer.playlistTracks(playlistId)
-                    query.isBlank() -> deezer.topTracks()
                     else -> deezer.searchTracks(query)
                 }
             }.onSuccess { tracks ->
@@ -407,6 +447,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         _state.update {
             it.copy(screen = Screen.PLAYING, round = Round(master.id, s.selection.shuffled().map(::Song)))
         }
+        cancelLockouts()
         audioJob?.cancel()
         audioJob = viewModelScope.launch {
             audio.load(s.selection)
@@ -440,6 +481,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application), B
         audio.pause()
         setFoundBy(trackId, playerId)
         // Une chanson trouvée débloque tout le monde
+        cancelLockouts()
         _state.update { it.copy(round = it.round?.copy(buzzerId = null, lockedOut = emptySet())) }
     }
 

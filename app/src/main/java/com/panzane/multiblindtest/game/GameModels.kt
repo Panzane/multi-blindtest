@@ -32,7 +32,7 @@ data class Round(
     val isAudioLoading: Boolean = true,
     /** Mode buzzers : joueur qui a buzzé et attend la décision du MJ. */
     val buzzerId: Int? = null,
-    /** Joueurs ayant donné une mauvaise réponse, bloqués jusqu'à la prochaine chanson trouvée. */
+    /** Joueurs ayant donné une mauvaise réponse, bloqués selon [GameSettings.lockout]. */
     val lockedOut: Set<Int> = emptySet(),
 ) {
     val remaining: List<Song> get() = songs.filterNot { it.isFound }
@@ -48,7 +48,30 @@ data class GameSettings(
     val randomMasterOrder: Boolean = false,
     /** Chaque joueur rejoint la partie avec son téléphone, qui lui sert de buzzer. */
     val buzzers: Boolean = false,
+    /** Mode buzzers : durée du blocage après une mauvaise réponse. */
+    val lockout: Lockout = Lockout.UNTIL_FOUND,
 )
+
+/** Blocage d'un joueur qui a donné une mauvaise réponse. Une chanson trouvée débloque toujours tout le monde. */
+enum class Lockout(
+    /** Libellé de l'option. */
+    val label: String,
+    /** « Mauvaise réponse : … » pour un joueur. */
+    val description: String,
+    /** « … : noms » pour la liste des joueurs bloqués. */
+    val lockedLabel: String,
+) {
+    UNTIL_FOUND(
+        "Jusqu'à la bonne réponse",
+        "bloqué jusqu'à la prochaine chanson trouvée",
+        "Bloqués jusqu'à la prochaine chanson trouvée",
+    ),
+    TIMED(
+        "Pendant $LOCKOUT_SECONDS secondes",
+        "bloqué $LOCKOUT_SECONDS secondes",
+        "Bloqués $LOCKOUT_SECONDS secondes",
+    ),
+}
 
 enum class Screen { PLAYERS, SELECTION, PLAYING, REVEAL, RESULTS }
 
@@ -84,6 +107,8 @@ data class GameUiState(
     val remoteMaster: Boolean get() = settings.buzzers && master?.hasBuzzer == true && !masterOnHost
     /** Joueur qui buzze sur le téléphone hôte. */
     val hostOwner: Player? get() = players.firstOrNull { it.isHostOwner }
+    /** Joueurs sans téléphone (hors celui qui joue sur l'hôte), qu'un téléphone peut reprendre en s'inscrivant. */
+    val claimablePlayers: List<Player> get() = players.filter { !it.hasBuzzer && !it.isHostOwner }
 
     private fun masterAt(index: Int): Player? {
         val order = masterOrder.ifEmpty { players.map { it.id } }
@@ -99,6 +124,7 @@ const val MIN_PLAYERS = 2
 const val MAX_PLAYERS = 10
 const val MAX_NAME_LENGTH = 20
 const val FINAL_SONGS = 2
+const val LOCKOUT_SECONDS = 10
 const val DEFAULT_SONGS_PER_ROUND = 6
 val SONGS_PER_ROUND_RANGE = (FINAL_SONGS + 1)..10
 val TURNS_PER_PLAYER_RANGE = 1..5

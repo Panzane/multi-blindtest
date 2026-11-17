@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.panzane.multiblindtest.data.deezer.Track
@@ -89,7 +90,7 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
                     }
                     item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
                 }
-                item { SectionTitle(if (state.query.isBlank()) "Titres du moment" else "Résultats") }
+                if (state.searchResults.isNotEmpty()) item { SectionTitle("Résultats") }
                 items(state.searchResults.filterNot { it.id in selectedIds }, key = { it.id }) { track ->
                     TrackItem(track, selected = false, enabled = !isFull) { viewModel.toggleSelection(track) }
                 }
@@ -97,7 +98,12 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
             if (state.isLoading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
             } else if (state.searchResults.isEmpty()) {
-                Text("Aucun titre trouvé.", modifier = Modifier.align(Alignment.Center))
+                Text(
+                    if (state.query.isBlank()) "Recherchez un titre, un artiste ou collez un lien de playlist."
+                    else "Aucun titre trouvé.",
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp),
+                )
             }
         }
 
