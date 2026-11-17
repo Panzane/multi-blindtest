@@ -1,6 +1,6 @@
 # Multi Blindtest
 
-Application Android de blindtest multijoueur **sur un seul téléphone**, alimentée par les extraits musicaux de Deezer.
+Application Android de blindtest multijoueur, alimentée par les extraits musicaux de Deezer. Elle se joue sur un seul téléphone, ou en **mode buzzers** : chaque joueur buzze depuis son propre téléphone.
 
 ## Principe
 
@@ -14,12 +14,25 @@ Application Android de blindtest multijoueur **sur un seul téléphone**, alimen
 5. Quand il n'en reste que 2, les joueurs doivent donner les deux : le MJ désigne qui les a données (+2 points) ou « personne ».
 6. Les réponses sont révélées, puis le tour suivant commence avec le MJ suivant. Classement final à la fin de la partie.
 
+## Mode buzzers
+
+Activé sur l'écran des joueurs. Le téléphone hôte (celui qui joue la musique) lance un petit serveur web sur le réseau local, sans aucun serveur externe :
+
+1. Les joueurs scannent le QR code affiché sur l'hôte : une page buzzer s'ouvre dans leur navigateur (Android ou iPhone, rien à installer). Ils entrent leur prénom.
+2. Les joueurs sans téléphone, et le propriétaire de l'hôte, s'ajoutent à la main sur l'hôte comme avant. Le propriétaire de l'hôte coche son nom : l'hôte lui sert alors de buzzer quand il n'est pas MJ.
+3. Pendant une manche, le premier qui buzze prend la main : la musique s'arrête et les autres buzzers sont bloqués. Le MJ touche la chanson trouvée (+1), ou « Mauvaise réponse » : la musique reprend et ce joueur est bloqué jusqu'à la prochaine chanson trouvée. En finale, il faut donner les deux chansons.
+4. Le MJ peut toujours attribuer un point à la main, sans buzz.
+5. Quand le MJ a un téléphone, il pilote la manche depuis sa page : recherche et choix des chansons, lancement, pause, validation des réponses, tour suivant. La musique joue sur l'hôte, qui n'affiche aucune chanson avant la révélation. Si le téléphone du MJ lâche, « Reprendre la main ici » ramène ses commandes sur l'hôte jusqu'à la fin de la manche. Un joueur sans téléphone est MJ sur l'hôte, comme avant.
+
+Tous les téléphones doivent être sur le même wifi. Certains réseaux (hôtels, wifi invités) bloquent les échanges entre appareils : dans ce cas, activer le partage de connexion de l'hôte et y connecter les joueurs. Un téléphone qui se met en veille se reconnecte tout seul et retrouve sa place. L'écran de l'hôte reste allumé pendant la partie, et une notification « Partie en cours » (service au premier plan) empêche Android de geler l'app si l'hôte passe sur une autre app.
+
 ## Stack
 
 - Kotlin, Jetpack Compose (Material 3)
 - Retrofit + kotlinx.serialization pour l'[API publique Deezer](https://developers.deezer.com/api) (sans authentification)
 - Media3 ExoPlayer pour la lecture des extraits
 - Coil pour les pochettes
+- Ktor (serveur CIO + WebSocket) pour le mode buzzers, ZXing pour le QR code
 
 ## Structure
 
@@ -28,7 +41,9 @@ app/src/main/java/com/panzane/multiblindtest/
 ├── data/deezer/   API Deezer, modèles et repository
 ├── audio/         Lecture simultanée des extraits (ExoPlayer)
 ├── game/          État de la partie et ViewModel
+├── net/           Serveur du mode buzzers et protocole échangé avec la page
 └── ui/            Écrans Compose et thème
+app/src/main/assets/buzzer.html   Page buzzer servie aux téléphones des joueurs
 ```
 
 ## Build

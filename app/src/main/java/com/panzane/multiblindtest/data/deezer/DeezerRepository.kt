@@ -23,9 +23,6 @@ class DeezerException(message: String) : Exception(message)
  */
 class DeezerRepository(private val api: DeezerApi = createApi()) {
 
-    suspend fun topTracks(): List<Track> =
-        api.topTracks().orThrow().toPlayableTracks()
-
     suspend fun searchTracks(query: String): List<Track> =
         api.searchTracks(query).orThrow().toPlayableTracks()
 

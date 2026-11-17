@@ -1,5 +1,10 @@
 package com.panzane.multiblindtest.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,22 +13,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,20 +42,37 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import com.panzane.multiblindtest.game.GameUiState
 import com.panzane.multiblindtest.game.GameViewModel
+import com.panzane.multiblindtest.game.Lockout
 import com.panzane.multiblindtest.game.MAX_PLAYERS
 import com.panzane.multiblindtest.game.MIN_PLAYERS
 import com.panzane.multiblindtest.game.SONGS_PER_ROUND_RANGE
 import com.panzane.multiblindtest.game.TURNS_PER_PLAYER_RANGE
+import com.panzane.multiblindtest.ui.components.QrCode
 
 @Composable
 fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
     var name by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    // Android 13+ : sans cette permission, la notification « Partie en cours » du mode buzzers reste invisible.
+    // Le mode s'active quelle que soit la réponse : le service tourne même sans notification affichée.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val onBuzzerModeChange = { enabled: Boolean ->
+        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        viewModel.setBuzzerMode(enabled)
+    }
     val canAdd = name.isNotBlank() && state.players.size < MAX_PLAYERS
     val submit = {
         if (canAdd) {
@@ -55,12 +81,34 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
         }
     }
 
+    // Tout l'écran défile : en mode buzzers, le QR code prend de la place
     Column(
-        Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Multi Blindtest", style = MaterialTheme.typography.headlineMedium)
-        Text("Ajoutez les joueurs (${state.players.size}/$MAX_PLAYERS)", style = MaterialTheme.typography.titleMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Mode buzzers", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Chaque joueur buzze depuis son téléphone",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = state.settings.buzzers, onCheckedChange = onBuzzerModeChange)
+        }
+        if (state.settings.buzzers) BuzzerInvite(state.hostUrl)
+
+        Text("Joueurs (${state.players.size}/$MAX_PLAYERS)", style = MaterialTheme.typography.titleMedium)
+        if (state.settings.buzzers) {
+            Text(
+                "Ajoutez ici les joueurs sans téléphone, et vous-même si vous jouez sur ce téléphone " +
+                    "(cochez alors votre nom pour y avoir un buzzer).",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
@@ -80,10 +128,36 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
             }
         }
 
-        LazyColumn(Modifier.weight(1f)) {
-            items(state.players, key = { it.id }) { player ->
+        Column {
+            state.players.forEach { player ->
                 ListItem(
                     headlineContent = { Text(player.name) },
+                    supportingContent = when {
+                        player.hasBuzzer -> {
+                            { Text(if (player.id in state.connectedIds) "Buzzer connecté" else "Buzzer déconnecté") }
+                        }
+                        player.isHostOwner -> {
+                            { Text("Joue sur ce téléphone") }
+                        }
+                        else -> null
+                    },
+                    leadingContent = if (player.hasBuzzer) {
+                        {
+                            Icon(
+                                Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = if (player.id in state.connectedIds) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.outline,
+                            )
+                        }
+                    } else if (state.settings.buzzers) {
+                        {
+                            // Le joueur qui utilise ce téléphone y aura un buzzer quand il n'est pas MJ
+                            RadioButton(selected = player.isHostOwner, onClick = { viewModel.setHostOwner(player.id) })
+                        }
+                    } else {
+                        null
+                    },
                     trailingContent = {
                         IconButton(onClick = { viewModel.removePlayer(player.id) }) {
                             Icon(Icons.Default.Close, contentDescription = "Retirer ${player.name}")
@@ -112,6 +186,22 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
             Text("Ordre des MJ aléatoire", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
             Switch(checked = settings.randomMasterOrder, onCheckedChange = viewModel::setRandomMasterOrder)
         }
+        if (settings.buzzers) {
+            Text("Après une mauvaise réponse, le joueur est bloqué", style = MaterialTheme.typography.bodyLarge)
+            Lockout.entries.forEach { lockout ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().selectable(
+                        selected = settings.lockout == lockout,
+                        onClick = { viewModel.setLockout(lockout) },
+                        role = Role.RadioButton,
+                    ),
+                ) {
+                    RadioButton(selected = settings.lockout == lockout, onClick = null)
+                    Text(lockout.label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(start = 8.dp))
+                }
+            }
+        }
 
         Text(
             "Chaque joueur sera maître du jeu à tour de rôle" +
@@ -132,6 +222,36 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
                 if (state.players.size >= MIN_PLAYERS) "Commencer la partie"
                 else "Au moins $MIN_PLAYERS joueurs requis"
             )
+        }
+    }
+}
+
+/** QR code et adresse à ouvrir sur les téléphones des joueurs. */
+@Composable
+private fun BuzzerInvite(url: String?) {
+    Card(Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (url != null) {
+                QrCode(url, size = 120.dp)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Scannez pour rejoindre", style = MaterialTheme.typography.titleSmall)
+                    Text(url, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        "Les téléphones doivent être sur le même wifi que celui-ci.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            } else {
+                Text(
+                    "Connectez ce téléphone à un wifi, ou activez son partage de connexion, " +
+                        "pour que les joueurs puissent le rejoindre.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
         }
     }
 }

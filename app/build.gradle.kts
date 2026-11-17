@@ -13,8 +13,8 @@ android {
         applicationId = "com.panzane.multiblindtest"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.0.0"
+        versionCode = 3
+        versionName = "1.1.0-beta"
     }
 
     // Release signing credentials live outside the repo, in ~/.gradle/gradle.properties
@@ -73,4 +73,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.media3.exoplayer)
     implementation(libs.coil.compose)
+    implementation(libs.ktor.server.cio)
+    implementation(libs.ktor.server.websockets)
+    implementation(libs.zxing.core)
 }

@@ -12,11 +12,6 @@ interface DeezerApi {
         @Query("limit") limit: Int = 30,
     ): DeezerPage<DeezerTrackDto>
 
-    @GET("chart/0/tracks")
-    suspend fun topTracks(
-        @Query("limit") limit: Int = 30,
-    ): DeezerPage<DeezerTrackDto>
-
     @GET("playlist/{id}/tracks")
     suspend fun playlistTracks(
         @Path("id") playlistId: Long,

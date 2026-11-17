@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="fr" translate="no">
+<head>
+<meta charset="utf-8">
+<!-- Évite le bandeau de traduction de Chrome, qui cache le haut de la page -->
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#1c1b1f">
+<title>Multi Blindtest · Buzzer</title>
+<style>
+  :root {
+    --bg: #1c1b1f; --surface: #2b2930; --text: #f4eff4; --muted: #b8b2bd;
+    --accent: #ff7a3d; --accent-press: #d95a20; --ok: #3ec27a; --off: #4a4650; --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  body { display: flex; flex-direction: column; min-height: 100dvh; padding: 16px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .hidden { display: none !important; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  header .name { font-weight: 700; font-size: 1.2rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  header .score { color: var(--accent); font-weight: 700; white-space: nowrap; }
+  .sub { color: var(--muted); font-size: .9rem; margin-top: 2px; }
+  main { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center; padding: 16px 0; }
+  h1 { font-size: 1.6rem; margin: 0; }
+  p { margin: 0; line-height: 1.4; }
+  .message { font-size: 1.25rem; font-weight: 600; max-width: 22em; }
+  .hint { color: var(--muted); }
+  form { width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 12px; }
+  input { font-size: 1.2rem; padding: 14px; border-radius: 12px; border: 2px solid var(--off);
+    background: var(--surface); color: var(--text); width: 100%; }
+  input:focus { outline: none; border-color: var(--accent); }
+  button.primary { font-size: 1.2rem; font-weight: 700; padding: 14px; border: 0; border-radius: 12px;
+    background: var(--accent); color: #1c1b1f; }
+  button.primary:disabled { opacity: .5; }
+  .error { color: var(--danger); min-height: 1.4em; }
+  .names { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .names button { font-size: 1.1rem; font-weight: 600; padding: 12px 18px; border-radius: 12px;
+    border: 2px solid var(--accent); background: transparent; color: var(--text); }
+  .names button:disabled { opacity: .5; }
+  #buzz { width: min(78vw, 46vh); aspect-ratio: 1; border-radius: 50%; border: 0;
+    font-size: clamp(2rem, 10vw, 3.2rem); font-weight: 900; letter-spacing: .05em; color: #1c1b1f;
+    background: var(--accent); box-shadow: 0 10px 0 var(--accent-press), 0 18px 30px rgba(0,0,0,.4);
+    touch-action: manipulation; user-select: none; -webkit-user-select: none; transition: transform .05s; }
+  #buzz.pressed { transform: translateY(8px); box-shadow: 0 2px 0 var(--accent-press); }
+  #buzz.won { background: var(--ok); box-shadow: 0 10px 0 #2a8f58; }
+  #buzz:disabled:not(.won) { background: var(--off); box-shadow: 0 10px 0 #35323a; color: var(--muted); }
+  ol, ul { list-style: none; padding: 0; margin: 0; width: 100%; max-width: 420px; text-align: left; }
+  li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 10px;
+    background: var(--surface); margin-bottom: 6px; }
+  li.you { outline: 2px solid var(--accent); }
+  li .song { display: flex; flex-direction: column; min-width: 0; }
+  li .song span:last-child { color: var(--muted); font-size: .9rem; }
+  li .found { color: var(--ok); white-space: nowrap; }
+  li .missed { color: var(--muted); white-space: nowrap; }
+  /* Commandes du MJ */
+  body.mj main { justify-content: flex-start; }
+  .panel { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 12px; text-align: left; }
+  .panel h2 { font-size: 1rem; margin: 8px 0 0; color: var(--muted); font-weight: 600; }
+  .row { display: flex; flex-direction: row; gap: 8px; }
+  .row input { flex: 1; min-width: 0; }
+  button.secondary { font-size: 1rem; font-weight: 600; padding: 12px 16px; border-radius: 12px;
+    border: 2px solid var(--off); background: transparent; color: var(--text); }
+  /* user-select: none évite la recherche contextuelle de Chrome quand on touche une chanson */
+  li.track { align-items: center; cursor: pointer; user-select: none; -webkit-user-select: none; }
+  li.track img { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; flex: none; background: var(--off); }
+  li.track .song { flex: 1; }
+  li.track .song span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  li.track .action { color: var(--accent); font-weight: 600; white-space: nowrap; font-size: .9rem; }
+  li.track.selected { outline: 2px solid var(--accent); }
+  li.track.found { opacity: .55; }
+  li.track.found .action { color: var(--ok); }
+  li.track.disabled { cursor: default; }
+  li.track.disabled .action { color: var(--muted); }
+  .sticky { position: sticky; bottom: 0; padding: 8px 0; background: var(--bg); }
+  .card { background: #3a2a22; border: 2px solid var(--accent); border-radius: 16px; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px; text-align: center; }
+  .card .who { font-size: 1.5rem; font-weight: 800; }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end;
+    justify-content: center; padding: 16px; z-index: 10; }
+  #modal .sheet { width: 100%; max-width: 480px; max-height: 80vh; overflow: auto; background: var(--surface);
+    border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+  #modal .sheet p { font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+  #modal .sheet button { font-size: 1.1rem; padding: 14px; border-radius: 12px; border: 0;
+    background: var(--off); color: var(--text); text-align: left; }
+  #modal .sheet button.cancel { background: transparent; text-align: center; color: var(--muted); }
+  #offline { position: fixed; left: 0; right: 0; bottom: 0; padding: 10px; text-align: center;
+    background: var(--danger); color: #1c1b1f; font-weight: 600; }
+</style>
+</head>
+<body>
+<header id="top" class="hidden">
+  <div>
+    <div class="name" id="me"></div>
+    <div class="sub" id="round"></div>
+  </div>
+  <div class="score" id="score"></div>
+</header>
+
+<main>
+  <!-- Inscription -->
+  <section id="join" class="hidden">
+    <form id="joinForm">
+      <h1>Multi Blindtest</h1>
+      <div id="claim" class="hidden">
+        <p class="hint">Tu es déjà dans la partie ? Touche ton prénom :</p>
+        <div class="names" id="claimNames"></div>
+      </div>
+      <p class="hint" id="joinHint">Entre ton prénom pour rejoindre la partie.</p>
+      <input id="name" maxlength="20" autocomplete="given-name" autocapitalize="words" placeholder="Ton prénom" required>
+      <button class="primary" id="joinBtn" type="submit">Rejoindre</button>
+      <p class="error" id="joinError"></p>
+    </form>
+  </section>
+
+  <!-- Partie -->
+  <section id="game" class="hidden" style="display:contents">
+    <p class="message" id="message"></p>
+    <p class="hint" id="hint"></p>
+    <button id="buzz" class="hidden" type="button">BUZZ</button>
+    <ol id="ranking" class="hidden"></ol>
+    <ul id="answers" class="hidden"></ul>
+  </section>
+
+  <!-- MJ : choix des chansons -->
+  <section id="mjSelect" class="panel hidden">
+    <p class="message">C'est toi le MJ ! Choisis tes chansons en cachette.</p>
+    <form id="searchForm" class="row" style="max-width:none">
+      <input id="q" type="search" enterkeyhint="search" placeholder="Titre, artiste ou lien de playlist">
+      <button class="secondary" type="submit">OK</button>
+    </form>
+    <p class="error" id="mjError"></p>
+    <h2 id="mjSelCount"></h2>
+    <ul id="mjSelection"></ul>
+    <h2 id="mjResultsTitle"></h2>
+    <ul id="mjResults"></ul>
+    <div class="sticky"><button class="primary" id="mjLaunch" style="width:100%"></button></div>
+  </section>
+
+  <!-- MJ : manche en cours -->
+  <section id="mjPlay" class="panel hidden">
+    <p class="message" id="mjStatus" style="text-align:center"></p>
+    <button class="primary" id="mjPause"></button>
+    <div class="card hidden" id="mjBuzzCard">
+      <div class="who" id="mjBuzzWho"></div>
+      <p id="mjBuzzHint"></p>
+      <button class="primary hidden" id="mjFinalOk"></button>
+      <button class="secondary" id="mjWrong">Mauvaise réponse</button>
+    </div>
+    <p class="hint" id="mjLocked"></p>
+    <ul id="mjSongs"></ul>
+    <button class="secondary hidden" id="mjFinal">Qui a donné les 2 chansons ?</button>
+  </section>
+
+  <!-- MJ : révélation -->
+  <section id="mjReveal" class="panel hidden">
+    <p class="message" style="text-align:center">Les réponses</p>
+    <ul id="mjAnswers"></ul>
+    <div class="sticky"><button class="primary" id="mjNext" style="width:100%"></button></div>
+  </section>
+</main>
+
+<div id="modal" class="hidden"><div class="sheet" id="sheet"></div></div>
+
+<div id="offline" class="hidden">Connexion perdue… reconnexion</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const store = {
+    get: k => { try { return localStorage.getItem(k); } catch { return null; } },
+    set: (k, v) => { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
+  };
+
+  let ws = null;
+  let joined = false;
+  let retryDelay = 500;
+  let retryTimer = null;
+  let view = null;
+  let pendingJoin = false;
+  let audioCtx = null;
+  let lastPress = 0;
+
+  // Les navigateurs (iPhone surtout) n'autorisent le son qu'après un geste : on prépare l'audio au toucher du buzzer
+  function unlockAudio() {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch {}
+  }
+
+  /** Son de buzzer synthétisé : deux notes graves qui descendent, environ une demi-seconde. */
+  function playBuzzSound() {
+    if (!audioCtx) return;
+    try {
+      const t = audioCtx.currentTime;
+      const gain = audioCtx.createGain();
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+      gain.gain.setValueAtTime(0.35, t + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      [220, 223].forEach(freq => {
+        const osc = audioCtx.createOscillator();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(freq * 2, t);
+        osc.frequency.exponentialRampToValueAtTime(freq, t + 0.5);
+        osc.connect(gain);
+        osc.start(t);
+        osc.stop(t + 0.6);
+      });
+    } catch {}
+  }
+
+  // Blocage minuté : compte à rebours local, démarré quand le blocage arrive (l'hôte le lève au bout du délai)
+  let lockoutEnd = 0;
+  let lockoutTimer = null;
+  let wasLockedOut = false;
+
+  function lockoutCountdown() {
+    const left = Math.max(1, Math.ceil((lockoutEnd - Date.now()) / 1000));
+    return `Bloqué encore ${left} seconde${left > 1 ? 's' : ''}.`;
+  }
+
+  function trackLockout(v) {
+    const timed = v.phase === 'playing' && v.lockedOut && !!v.lockoutSeconds;
+    if (timed && !wasLockedOut) {
+      lockoutEnd = Date.now() + v.lockoutSeconds * 1000;
+      clearInterval(lockoutTimer);
+      lockoutTimer = setInterval(() => {
+        if (view && view.lockedOut && !view.buzzerName) $('hint').textContent = lockoutCountdown();
+      }, 250);
+    } else if (!timed) {
+      clearInterval(lockoutTimer);
+      lockoutTimer = null;
+    }
+    wasLockedOut = timed;
+  }
+
+  function show(id, visible) { $(id).classList.toggle('hidden', !visible); }
+
+  function showJoin(error) {
+    joined = false;
+    show('top', false); show('game', false); show('join', true);
+    $('joinError').textContent = error || '';
+    $('joinBtn').disabled = false;
+    $('claimNames').querySelectorAll('button').forEach(b => { b.disabled = false; });
+    if (!$('name').value) $('name').value = store.get('name') || '';
+  }
+
+  function connect() {
+    clearTimeout(retryTimer);
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onopen = () => {
+      retryDelay = 500;
+      show('offline', false);
+      const token = store.get('token');
+      const name = store.get('name');
+      // Reconnexion automatique avec le jeton reçu à l'inscription
+      if (name && (token || pendingJoin)) {
+        pendingJoin = false;
+        send(token ? { type: 'join', name, token } : { type: 'join', name });
+      } else {
+        showJoin();
+      }
+    };
+    ws.onmessage = e => handle(JSON.parse(e.data));
+    ws.onclose = () => {
+      ws = null;
+      if (joined || store.get('token')) show('offline', true);
+      retryTimer = setTimeout(connect, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 4000);
+    };
+  }
+
+  function send(msg) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  }
+
+  function handle(msg) {
+    switch (msg.type) {
+      case 'welcome':
+        store.set('token', msg.token);
+        joined = true;
+        show('join', false); show('top', true); show('game', true);
+        break;
+      case 'lobby':
+        renderLobby(msg.names);
+        break;
+      case 'rejected':
+        store.set('token', null);
+        showJoin(msg.reason);
+        break;
+      case 'kicked':
+        store.set('token', null);
+        showJoin('Tu as été retiré de la partie.');
+        break;
+      case 'state': {
+        const hadHand = !!(view && view.youBuzzed);
+        view = msg;
+        // Son seulement si c'est ce téléphone qui vient d'obtenir la main (pas à une reconnexion)
+        if (msg.youBuzzed && !hadHand && Date.now() - lastPress < 3000) playBuzzSound();
+        render();
+        break;
+      }
+    }
+  }
+
+  function render() {
+    const v = view;
+    if (!v) return;
+    trackLockout(v);
+    $('me').textContent = v.name;
+    $('score').textContent = `${v.score} pt${v.score > 1 ? 's' : ''}`;
+    const inRound = v.phase === 'selection' || v.phase === 'playing' || v.phase === 'reveal';
+    $('round').textContent = inRound ? `Tour ${v.roundNumber}/${v.totalRounds} · MJ : ${v.masterName || ''}` : '';
+
+    // Le MJ qui pilote depuis ce téléphone reçoit ses commandes à la place du buzzer
+    const isMj = !!(v.isMaster && v.master);
+    document.body.classList.toggle('mj', isMj);
+    show('game', !isMj);
+    ['mjSelect', 'mjPlay', 'mjReveal'].forEach(id => show(id, isMj && id === MJ_PANELS[v.phase]));
+    if (v.phase !== 'playing') closeModal();
+    if (isMj) { renderMaster(v); return; }
+
+    let message = '', hint = '', buzz = false, ranking = false, answers = false;
+    switch (v.phase) {
+      case 'lobby':
+        message = 'Tu es dans la partie !';
+        hint = 'En attente du lancement par le maître du jeu…';
+        ranking = true;
+        break;
+      case 'selection':
+        if (v.isMaster) {
+          message = "C'est toi le MJ !";
+          hint = 'Prends le téléphone hôte pour choisir tes chansons.';
+        } else {
+          message = `${v.masterName} choisit ses chansons…`;
+          hint = 'Prépare-toi à buzzer.';
+        }
+        break;
+      case 'playing':
+        if (v.isMaster) {
+          message = "Tu es MJ pour cette manche";
+          hint = 'Valide les réponses sur le téléphone hôte.';
+          break;
+        }
+        buzz = true;
+        if (v.musicLoading) { message = 'Chargement des extraits…'; }
+        else if (v.youBuzzed) { message = 'À toi ! Donne ta réponse'; hint = v.isFinal ? 'Il faut donner les 2 chansons.' : ''; }
+        else if (v.buzzerName) { message = `${v.buzzerName} a buzzé`; }
+        else if (v.lockedOut) {
+          message = 'Mauvaise réponse';
+          hint = v.lockoutSeconds ? lockoutCountdown() : "Bloqué jusqu'à la prochaine chanson trouvée.";
+        }
+        else { message = v.isFinal ? 'Finale : donne les 2 chansons !' : `${v.remaining} chansons à trouver`; }
+        break;
+      case 'reveal':
+        message = 'Les réponses';
+        answers = true;
+        break;
+      case 'results':
+        message = 'Partie terminée !';
+        ranking = true;
+        break;
+    }
+    $('message').textContent = message;
+    $('hint').textContent = hint;
+    show('hint', !!hint);
+
+    const b = $('buzz');
+    show('buzz', buzz);
+    b.disabled = !v.canBuzz;
+    b.classList.toggle('won', v.youBuzzed);
+    b.classList.remove('pressed');
+    b.textContent = v.youBuzzed ? 'À TOI !' : (v.lockedOut ? 'BLOQUÉ' : 'BUZZ');
+
+    show('ranking', ranking);
+    if (ranking) {
+      $('ranking').replaceChildren(...v.ranking.map((p, i) => {
+        const li = document.createElement('li');
+        if (p.isYou) li.className = 'you';
+        const n = document.createElement('span');
+        n.textContent = v.phase === 'results' ? `${i + 1}. ${p.name}` : p.name;
+        const s = document.createElement('span');
+        s.textContent = v.phase === 'results' ? `${p.score} pt${p.score > 1 ? 's' : ''}` : '';
+        li.append(n, s);
+        return li;
+      }));
+    }
+
+    show('answers', answers);
+    if (answers) $('answers').replaceChildren(...answerItems(v.answers));
+  }
+
+  function answerItems(list) {
+    return list.map(a => {
+      const li = el('li');
+      const song = el('div', 'song');
+      song.append(el('span', null, a.title), el('span', null, a.artist));
+      li.append(song, el('span', a.foundBy ? 'found' : 'missed', a.foundBy || 'personne'));
+      return li;
+    });
+  }
+
+  // --- Commandes du MJ ------------------------------------------------------------
+
+  const MJ_PANELS = { selection: 'mjSelect', playing: 'mjPlay', reveal: 'mjReveal' };
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function trackItem(t, action, onClick, cls) {
+    const li = el('li', 'track' + (cls ? ' ' + cls : ''));
+    const img = el('img');
+    img.alt = '';
+    if (t.cover) img.src = t.cover;
+    const song = el('div', 'song');
+    song.append(el('span', null, t.title), el('span', null, t.artist));
+    li.append(img, song, el('span', 'action', action));
+    if (onClick) {
+      li.setAttribute('role', 'button');
+      li.tabIndex = 0;
+      li.addEventListener('click', onClick);
+    } else {
+      li.classList.add('disabled');
+    }
+    return li;
+  }
+
+  /** Feuille de choix en bas de l'écran : [{ label, onClick }]. */
+  function pick(title, options) {
+    const sheet = $('sheet');
+    sheet.replaceChildren(el('p', null, title));
+    options.forEach(o => {
+      const b = el('button', null, o.label);
+      b.addEventListener('click', () => { closeModal(); o.onClick(); });
+      sheet.append(b);
+    });
+    const cancel = el('button', 'cancel', 'Retour');
+    cancel.addEventListener('click', closeModal);
+    sheet.append(cancel);
+    show('modal', true);
+  }
+
+  function closeModal() { show('modal', false); }
+
+  function renderMaster(v) {
+    const m = v.master;
+    if (v.phase === 'selection') {
+      const full = m.selection.length >= m.songsPerRound;
+      // Ne pas écraser ce que le MJ est en train de taper
+      if (document.activeElement !== $('q')) $('q').value = m.query;
+      if (full && document.activeElement === $('q')) $('q').blur();
+      $('mjError').textContent = m.error || '';
+      show('mjError', !!m.error);
+      $('mjSelCount').textContent = `Ta sélection (${m.selection.length}/${m.songsPerRound})`;
+      show('mjSelCount', m.selection.length > 0);
+      $('mjSelection').replaceChildren(...m.selection.map(t =>
+        trackItem(t, 'Retirer', () => send({ type: 'toggleTrack', trackId: t.id }), 'selected')));
+      const selected = new Set(m.selection.map(t => t.id));
+      $('mjResultsTitle').textContent = m.searching ? 'Recherche…'
+        : m.results.length ? 'Résultats'
+        : m.query ? 'Aucun titre trouvé.' : 'Recherche un titre, un artiste ou colle un lien de playlist.';
+      $('mjResults').replaceChildren(...m.results.filter(t => !selected.has(t.id)).map(t =>
+        trackItem(t, 'Ajouter', full ? null : () => send({ type: 'toggleTrack', trackId: t.id }))));
+      const launch = $('mjLaunch');
+      launch.disabled = !full;
+      launch.textContent = full ? `Lancer les ${m.songsPerRound} chansons`
+        : `Encore ${m.songsPerRound - m.selection.length} chanson(s) à choisir`;
+    } else if (v.phase === 'playing') {
+      const buzzer = m.guessers.find(g => g.id === m.buzzerId);
+      $('mjStatus').textContent = v.musicLoading ? 'Chargement des extraits…'
+        : v.isFinal ? 'Plus que 2 chansons : il faut donner les deux !'
+        : `${v.remaining} chansons en même temps. Touche une chanson quand elle est trouvée.`;
+      show('mjPause', !v.musicLoading && !buzzer);
+      $('mjPause').textContent = m.isPlaying ? '❚❚  Pause' : '▶  Reprendre';
+
+      show('mjBuzzCard', !!buzzer);
+      if (buzzer) {
+        $('mjBuzzWho').textContent = `${buzzer.name} a buzzé !`;
+        $('mjBuzzHint').textContent = v.isFinal ? 'Il faut donner les 2 chansons.' : 'Bonne réponse ? Touche la chanson trouvée.';
+        show('mjFinalOk', v.isFinal);
+        $('mjFinalOk').textContent = 'Les 2 sont bonnes (+2)';
+      }
+      $('mjLocked').textContent = m.lockedOut.length ? `${m.lockoutLabel} : ${m.lockedOut.join(', ')}` : '';
+      show('mjLocked', m.lockedOut.length > 0);
+
+      $('mjSongs').replaceChildren(...m.songs.map(s => {
+        if (s.foundById != null) {
+          return trackItem(s, `trouvée par ${s.foundBy}`, () => pick(`« ${s.title} » trouvée par ${s.foundBy}`, [
+            { label: 'Annuler la réponse', onClick: () => send({ type: 'unmarkFound', trackId: s.id }) },
+          ]), 'found');
+        }
+        if (v.musicLoading || v.isFinal) return trackItem(s, '', null);
+        if (buzzer) return trackItem(s, `+1 ${buzzer.name}`, () => send({ type: 'markFound', trackId: s.id, playerId: buzzer.id }));
+        return trackItem(s, 'Attribuer', () => {
+          send({ type: 'pause' });
+          pick(`Qui a trouvé « ${s.title} » ?`, m.guessers.map(g => ({
+            label: g.name, onClick: () => send({ type: 'markFound', trackId: s.id, playerId: g.id }),
+          })));
+        });
+      }));
+      show('mjFinal', v.isFinal && !v.musicLoading && !buzzer);
+    } else if (v.phase === 'reveal') {
+      $('mjAnswers').replaceChildren(...answerItems(v.answers));
+      $('mjNext').textContent = m.isLastRound ? 'Voir les résultats' : `Tour suivant · MJ : ${m.nextMasterName}`;
+    }
+  }
+
+  $('searchForm').addEventListener('submit', e => {
+    e.preventDefault();
+    $('q').blur();
+    send({ type: 'search', query: $('q').value });
+  });
+  $('mjLaunch').addEventListener('click', () => send({ type: 'launch' }));
+  $('mjPause').addEventListener('click', () => send({ type: 'togglePause' }));
+  $('mjWrong').addEventListener('click', () => send({ type: 'rejectBuzz' }));
+  $('mjFinalOk').addEventListener('click', () => {
+    const id = view && view.master && view.master.buzzerId;
+    if (id != null) send({ type: 'resolveFinal', playerId: id });
+  });
+  $('mjFinal').addEventListener('click', () => {
+    send({ type: 'pause' });
+    const m = view.master;
+    pick('Qui a donné les 2 dernières chansons ?', [
+      ...m.guessers.map(g => ({ label: g.name, onClick: () => send({ type: 'resolveFinal', playerId: g.id }) })),
+      { label: 'Personne', onClick: () => send({ type: 'resolveFinal' }) },
+    ]);
+  });
+  $('mjNext').addEventListener('click', () => send({ type: 'nextRound' }));
+  $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
+
+  // pointerdown plutôt que click : le buzz part dès que le doigt touche l'écran
+  $('buzz').addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if ($('buzz').disabled) return;
+    $('buzz').classList.add('pressed');
+    unlockAudio();
+    lastPress = Date.now();
+    if (navigator.vibrate) navigator.vibrate(60);
+    send({ type: 'buzz' });
+  });
+
+  function joinAs(name) {
+    store.set('name', name);
+    store.set('token', null);
+    $('joinBtn').disabled = true;
+    $('claimNames').querySelectorAll('button').forEach(b => { b.disabled = true; });
+    $('joinError').textContent = '';
+    if (ws && ws.readyState === WebSocket.OPEN) send({ type: 'join', name });
+    else { pendingJoin = true; connect(); }
+  }
+
+  /** Joueurs ajoutés sur l'hôte sans téléphone : un bouton par prénom pour les reprendre. */
+  function renderLobby(names) {
+    $('claimNames').replaceChildren(...names.map(name => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = name;
+      b.addEventListener('click', () => joinAs(name));
+      return b;
+    }));
+    show('claim', names.length > 0);
+    $('joinHint').textContent = names.length > 0 ? 'Sinon, entre ton prénom :' : 'Entre ton prénom pour rejoindre la partie.';
+  }
+
+  $('joinForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('name').value.trim();
+    if (name) joinAs(name);
+  });
+
+  // Au retour de veille, on se reconnecte tout de suite
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { retryDelay = 500; connect(); }
+  });
+
+  connect();
+})();
+</script>
+</body>
+</html>
