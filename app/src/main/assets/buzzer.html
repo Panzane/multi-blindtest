@@ -128,13 +128,16 @@
   <section id="mjSelect" class="panel hidden">
     <p class="message">C'est toi le MJ ! Choisis tes chansons en cachette.</p>
     <form id="searchForm" class="row" style="max-width:none">
-      <input id="q" type="search" enterkeyhint="search" placeholder="Titre, artiste ou lien de playlist">
+      <input id="q" type="search" enterkeyhint="search" placeholder="Titre, artiste ou lien de playlist Deezer">
       <button class="secondary" type="submit">OK</button>
     </form>
     <p class="error" id="mjError"></p>
     <h2 id="mjSelCount"></h2>
     <ul id="mjSelection"></ul>
     <h2 id="mjResultsTitle"></h2>
+    <p class="hint hidden" id="mjPlaylistHint" style="overflow-wrap:anywhere">
+      Exemples acceptés :<br>https://www.deezer.com/fr/playlist/1234567890<br>ou le numéro seul : 1234567890
+    </p>
     <ul id="mjResults"></ul>
     <div class="sticky"><button class="primary" id="mjLaunch" style="width:100%"></button></div>
   </section>
@@ -468,7 +471,8 @@
       const selected = new Set(m.selection.map(t => t.id));
       $('mjResultsTitle').textContent = m.searching ? 'Recherche…'
         : m.results.length ? 'Résultats'
-        : m.query ? 'Aucun titre trouvé.' : 'Recherche un titre, un artiste ou colle un lien de playlist.';
+        : m.query ? 'Aucun titre trouvé.' : "Recherche un titre, un artiste ou colle le lien d'une playlist Deezer publique.";
+      show('mjPlaylistHint', !m.searching && !m.results.length && !m.query);
       $('mjResults').replaceChildren(...m.results.filter(t => !selected.has(t.id)).map(t =>
         trackItem(t, 'Ajouter', full ? null : () => send({ type: 'toggleTrack', trackId: t.id }))));
       const launch = $('mjLaunch');
