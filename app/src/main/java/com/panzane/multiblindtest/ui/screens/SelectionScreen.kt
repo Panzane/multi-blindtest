@@ -69,7 +69,7 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
         OutlinedTextField(
             value = state.query,
             onValueChange = viewModel::onQueryChange,
-            label = { Text("Titre, artiste ou lien de playlist") },
+            label = { Text("Titre, artiste ou lien de playlist Deezer") },
             singleLine = true,
             trailingIcon = {
                 IconButton(onClick = { viewModel.search() }) {
@@ -97,13 +97,30 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
             }
             if (state.isLoading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
-            } else if (state.searchResults.isEmpty()) {
+            } else if (state.searchResults.isEmpty() && state.query.isNotBlank()) {
                 Text(
-                    if (state.query.isBlank()) "Recherchez un titre, un artiste ou collez un lien de playlist."
-                    else "Aucun titre trouvé.",
+                    "Aucun titre trouvé.",
                     textAlign = TextAlign.Center,
                     modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp),
                 )
+            } else if (state.searchResults.isEmpty()) {
+                Column(
+                    Modifier.align(Alignment.Center).padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "Recherchez un titre, un artiste ou collez le lien d'une playlist Deezer publique.",
+                        textAlign = TextAlign.Center,
+                    )
+                    Text(
+                        "Exemples acceptés :\nhttps://www.deezer.com/fr/playlist/1234567890\n" +
+                            "ou le numéro seul : 1234567890",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
 
