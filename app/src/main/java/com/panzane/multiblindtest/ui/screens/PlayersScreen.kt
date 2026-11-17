@@ -49,6 +49,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.panzane.multiblindtest.BuildConfig
 import com.panzane.multiblindtest.game.GameUiState
 import com.panzane.multiblindtest.game.GameViewModel
 import com.panzane.multiblindtest.game.Lockout
@@ -223,7 +224,24 @@ fun PlayersScreen(state: GameUiState, viewModel: GameViewModel) {
                 else "Au moins $MIN_PLAYERS joueurs requis"
             )
         }
+
+        Credits()
     }
+}
+
+/** Mentions de droits, en bas de l'écran de création de la partie. */
+@Composable
+private fun Credits() {
+    Text(
+        "© 2026 Panzane · Version ${BuildConfig.VERSION_NAME}\n" +
+            "Idée originale de Kyan Khojandi et Navo (Un bon moment)\n" +
+            "Extraits musicaux fournis par Deezer.\n" +
+            "Les titres restent la propriété de leurs ayants droit.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+    )
 }
 
 /** QR code et adresse à ouvrir sur les téléphones des joueurs. */
