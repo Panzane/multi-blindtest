@@ -94,39 +94,57 @@ fun SelectionScreen(state: GameUiState, viewModel: GameViewModel) {
                 items(state.searchResults.filterNot { it.id in selectedIds }, key = { it.id }) { track ->
                     TrackItem(track, selected = false, enabled = !isFull) { viewModel.toggleSelection(track) }
                 }
+                // Messages d'aide placés dans la liste (et non par-dessus) pour ne pas
+                // masquer les titres déjà sélectionnés ; centrés tant que la liste est vide.
+                if (!state.isLoading && state.searchResults.isEmpty()) {
+                    item(key = "empty-hint") {
+                        Box(
+                            if (state.selection.isEmpty()) Modifier.fillParentMaxSize()
+                            else Modifier.fillParentMaxWidth().padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (state.query.isNotBlank()) {
+                                Text(
+                                    "Aucun titre trouvé.",
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            } else {
+                                SearchHint()
+                            }
+                        }
+                    }
+                }
             }
             if (state.isLoading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
-            } else if (state.searchResults.isEmpty() && state.query.isNotBlank()) {
-                Text(
-                    "Aucun titre trouvé.",
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.align(Alignment.Center).padding(horizontal = 16.dp),
-                )
-            } else if (state.searchResults.isEmpty()) {
-                Column(
-                    Modifier.align(Alignment.Center).padding(horizontal = 16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        "Recherchez un titre, un artiste ou collez le lien d'une playlist Deezer publique.",
-                        textAlign = TextAlign.Center,
-                    )
-                    Text(
-                        "Exemples acceptés :\nhttps://www.deezer.com/fr/playlist/1234567890\n" +
-                            "ou le numéro seul : 1234567890",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center,
-                    )
-                }
             }
         }
 
         Button(onClick = viewModel::launchRound, enabled = isFull, modifier = Modifier.fillMaxWidth()) {
             Text(if (isFull) "Lancer les $songsPerRound chansons" else "Encore ${songsPerRound - state.selection.size} chanson(s) à choisir")
         }
+    }
+}
+
+@Composable
+private fun SearchHint() {
+    Column(
+        Modifier.padding(horizontal = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "Recherchez un titre, un artiste ou collez le lien d'une playlist Deezer publique.",
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            "Exemples acceptés :\nhttps://www.deezer.com/fr/playlist/1234567890\n" +
+                "ou le numéro seul : 1234567890",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
